@@ -8,23 +8,34 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
 
-from backend.api.stocks import router as stocks_router
-from backend.api.signals import router as signals_router
-from backend.api.backtest import router as backtest_router
-from backend.api.paper import router as paper_router
-from backend.api.dashboard import router as dashboard_router
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """启动时自动初始化数据库"""
+    from data.storage.database import init_db
+    init_db()
+    yield
+
 
 app = FastAPI(
     title="量化交易系统 API",
     version="0.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
+
+from backend.api.stocks import router as stocks_router
+from backend.api.signals import router as signals_router
+from backend.api.backtest import router as backtest_router
+from backend.api.paper import router as paper_router
+from backend.api.dashboard import router as dashboard_router
 
 app.add_middleware(
     CORSMiddleware,
