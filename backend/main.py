@@ -52,15 +52,19 @@ def health_check():
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
 
 if FRONTEND_DIST.exists():
-    # 静态资源
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
 
-    # SPA 路由：根路径和所有非 API 路径返回 index.html
-    @app.get("/")
-    @app.get("/{path:path}")
-    async def serve_spa(path: str = ""):
-        if path.startswith("api/") or path == "docs" or path == "redoc":
-            from fastapi.responses import JSONResponse
-            return JSONResponse({"detail": "Not Found"}, status_code=404)
-        index_file = FRONTEND_DIST / "index.html"
-        return FileResponse(index_file)
+    @app.middleware("http")
+    async def serve_spa(request: Request, call_next):
+        """SPA中间件：API 404 → 前端 index.html"""
+        response = await call_next(request)
+        # 只处理 GET 请求的非 API 路径的 404
+        if (response.status_code == 404
+            and request.method == "GET"
+            and not request.url.path.startswith("/api/")
+            and not request.url.path.startswith("/docs")
+            and not request.url.path.startswith("/redoc")):
+            index_path = FRONTEND_DIST / "index.html"
+            if index_path.exists():
+                return FileResponse(index_path)
+        return response
