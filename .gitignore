@@ -1,0 +1,35 @@
+# AI工具配置（含API密钥，严禁上传）
+.claude/
+.trae/
+*.local.json
+
+# 环境变量
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+
+# 数据库
+*.db
+
+# IDE
+.vscode/
+.idea/
+
+# 系统文件
+Thumbs.db
+.DS_Store
+外部资料/参考-Backtesting-Engine/
+外部资料/参考-Hikyuu/
+data/db/*.db
+.codex/

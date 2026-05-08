@@ -1,0 +1,10 @@
+# -*- coding: utf-8 -*-
+# 数据层依赖
+
+akshare>=1.14.0
+pandas>=2.2.0
+numpy>=1.26.0
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.0
+openpyxl>=3.1.0
+pyarrow>=15.0.0
