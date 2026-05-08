@@ -23,7 +23,7 @@ def get_all_stocks(exchange: str | None = None) -> list[dict]:
 
 
 def search_stocks(keyword: str, limit: int = 10) -> list[dict]:
-    """按代码或中文名称搜索股票，不使用拼音首字母。"""
+    """按代码或中文名称搜索股票，优先从stocks表查，为空则查自选股。"""
     query = keyword.strip()
     if not query:
         return []
@@ -31,26 +31,47 @@ def search_stocks(keyword: str, limit: int = 10) -> list[dict]:
     limit = max(1, min(limit, 50))
     with get_session() as session:
         stocks = session.execute(select(StockModel)).scalars().all()
-        watch_codes = {
-            row[0] for row in session.execute(select(WatchlistModel.code)).all()
-        }
+        watch_rows = session.execute(select(WatchlistModel)).scalars().all()
+        watch_codes = {r.code for r in watch_rows}
+
+    # 如果stocks表为空，从自选股中搜索
+    if not stocks:
+        candidates = []
+        for w in watch_rows:
+            candidates.append(type('StockProxy', (), {
+                'code': w.code, 'name': w.name or '', 'exchange': '',
+                'industry': None, 'list_date': None,
+            }))
+    else:
+        candidates = list(stocks)
 
     matches = []
-    for stock in stocks:
-        score = _stock_match_score(query, stock.code, stock.name)
+    for stock in candidates:
+        code = stock.code
+        name = getattr(stock, 'name', '') or ''
+        exchange = getattr(stock, 'exchange', '') or ''
+        exchange_val = exchange if hasattr(stock, 'exchange') else ''
+        score = _stock_match_score(query, code, name)
         if score is None:
             continue
+        # 给港股/美股标记合适的市场
+        if not exchange_val:
+            if len(code) == 5 and code.isdigit():
+                exchange_val = 'HK'
+            elif not code.isdigit():
+                exchange_val = 'US'
+
         matches.append((
             score,
-            stock.code,
+            code,
             {
-                "code": stock.code,
-                "name": stock.name,
-                "exchange": stock.exchange,
-                "market_label": _market_label(stock.exchange),
-                "industry": stock.industry,
-                "list_date": stock.list_date.isoformat() if stock.list_date else None,
-                "is_watchlist": stock.code in watch_codes,
+                "code": code,
+                "name": name,
+                "exchange": exchange_val,
+                "market_label": _market_label(exchange_val),
+                "industry": getattr(stock, 'industry', None) or None,
+                "list_date": None,
+                "is_watchlist": code in watch_codes,
             },
         ))
 
@@ -183,8 +204,7 @@ def _is_ordered_subsequence(query: str, text: str) -> bool:
 
 def _market_label(exchange: str | None) -> str:
     mapping = {
-        "SH": "沪A",
-        "SZ": "深A",
-        "BJ": "北交",
+        "SH": "沪A", "SZ": "深A", "BJ": "北交",
+        "HK": "港股", "US": "美股",
     }
     return mapping.get(exchange or "", exchange or "-")
