@@ -10,6 +10,22 @@ from data.storage.repository import list_paper_accounts
 router = APIRouter(tags=["仪表盘"])
 
 
+@router.post("/seed-watchlist")
+def seed_watchlist():
+    """手动触发自选股种子数据导入"""
+    from backend.main import _seed_watchlist
+    from pathlib import Path
+    project_root = Path(__file__).resolve().parent.parent.parent
+    _seed_watchlist(project_root)
+
+    from data.storage.database import get_session
+    from data.storage.models_orm import WatchlistModel
+    from sqlalchemy import select, func
+    with get_session() as s:
+        count = s.execute(select(func.count()).select_from(WatchlistModel)).scalar() or 0
+    return {"status": "done", "watchlist_count": count}
+
+
 @router.get("/dashboard")
 def dashboard_summary():
     """仪表盘首页摘要数据"""
