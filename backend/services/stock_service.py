@@ -34,16 +34,15 @@ def search_stocks(keyword: str, limit: int = 10) -> list[dict]:
         watch_rows = session.execute(select(WatchlistModel)).scalars().all()
         watch_codes = {r.code for r in watch_rows}
 
-    # 如果stocks表为空，从自选股中搜索
-    if not stocks:
-        candidates = []
-        for w in watch_rows:
+    # 同时从stocks表和自选股搜索（自选股可能包含港股/美股不在stocks表）
+    candidates = list(stocks)
+    seen_codes = {s.code for s in stocks}
+    for w in watch_rows:
+        if w.code not in seen_codes:
             candidates.append(type('StockProxy', (), {
                 'code': w.code, 'name': w.name or '', 'exchange': '',
                 'industry': None, 'list_date': None,
             }))
-    else:
-        candidates = list(stocks)
 
     matches = []
     for stock in candidates:
