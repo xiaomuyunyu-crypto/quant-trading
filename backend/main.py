@@ -15,11 +15,47 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse
 
 
+def _seed_watchlist(project_root: Path):
+    """从自选股材料导入数据库（仅首次）"""
+    import json, re
+    from data.storage.database import get_session
+    from data.storage.models_orm import WatchlistModel
+    from sqlalchemy import select, func
+
+    json_path = project_root / "外部资料" / "自选股材料" / "自选股图片OCR整理.json"
+    if not json_path.exists():
+        return
+
+    with get_session() as s:
+        count = s.execute(select(func.count()).select_from(WatchlistModel)).scalar() or 0
+        if count > 0:
+            return  # 已有数据，跳过
+
+    with open(json_path, "r", encoding="utf-8") as f:
+        records = json.load(f)
+
+    with get_session() as s:
+        for r in records:
+            code = r["代码"].strip()
+            name = r["名称"].strip()
+            # 分类标签
+            if re.match(r"^\d{6}$", code):
+                tag = "A股" if code.startswith(("0", "3", "6")) else ("ETF" if code.startswith(("1", "5")) else "指数")
+            elif re.match(r"^\d{5}$", code):
+                tag = "港股"
+            elif re.match(r"^[A-Z]{2,5}$", code):
+                tag = "美股"
+            else:
+                tag = "指数" if re.match(r"^(BK|98|H)\d+", code) else "其他"
+            s.merge(WatchlistModel(code=code, name=name, tags=[tag]))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """启动时自动初始化数据库"""
+    """启动时自动初始化数据库并导入种子数据"""
     from data.storage.database import init_db
     init_db()
+    _seed_watchlist(PROJECT_ROOT)
     yield
 
 
