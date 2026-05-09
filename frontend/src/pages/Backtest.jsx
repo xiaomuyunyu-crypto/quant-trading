@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import {
   BarChart3,
@@ -85,9 +85,8 @@ export default function Backtest() {
     fullHistory: false,
     capital: 10000,
   });
-  const [strategies, setStrategies] = useState(DEFAULT_STRATEGIES);
+  const [strategies] = useState(DEFAULT_STRATEGIES);
   const [selectedStrategy, setSelectedStrategy] = useState(DEFAULT_STRATEGIES[0].key);
-  const [strategyError, setStrategyError] = useState("");
   const [mode, setMode] = useState("single");
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
@@ -96,25 +95,6 @@ export default function Backtest() {
     () => strategies.find((strategy) => strategy.key === selectedStrategy) || strategies[0],
     [selectedStrategy, strategies]
   );
-
-  useEffect(() => {
-    let alive = true;
-    api.get("/backtest/strategies")
-      .then((data) => {
-        const loaded = (data.categories || []).flatMap((category) => category.strategies || []);
-        if (alive && loaded.length > 0) {
-          setStrategies(loaded);
-          setSelectedStrategy((prev) => loaded.some((strategy) => strategy.key === prev) ? prev : loaded[0].key);
-          setStrategyError("");
-        }
-      })
-      .catch((e) => {
-        if (alive) setStrategyError(e.message || "策略列表获取失败，已使用本地默认策略");
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
 
   const updateParam = (key, value) => {
     setParams((prev) => ({ ...prev, [key]: value }));
@@ -140,6 +120,12 @@ export default function Backtest() {
       return;
     }
 
+    const daysNum = Number(params.days);
+    if (!params.fullHistory && (!Number.isFinite(daysNum) || daysNum < 30)) {
+      setError("回测天数至少需要30天");
+      return;
+    }
+
     setMode("single");
     setError("");
     setResult(null);
@@ -148,9 +134,9 @@ export default function Backtest() {
       const data = await api.post("/backtest", {
         code: params.code.trim(),
         strategy: selectedStrategy,
-        days: params.fullHistory ? undefined : Number(params.days),
+        days: params.fullHistory ? undefined : daysNum,
         full_history: Boolean(params.fullHistory),
-        initial_capital: Number(params.capital),
+        initial_capital: Number(params.capital) || 10000,
       });
       setResult({ type: "single", data });
     } catch (e) {
@@ -273,7 +259,10 @@ export default function Backtest() {
                     max={15000}
                     value={params.days}
                     disabled={params.fullHistory}
-                    onChange={(e) => updateParam("days", e.target.value)}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      updateParam("days", v === "" ? "" : Number(v));
+                    }}
                     className="h-10 w-full rounded border border-slate-300 bg-white px-3 font-mono text-sm text-slate-950 outline-none transition-colors disabled:bg-slate-100 disabled:text-slate-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/10"
                   />
                 </label>
@@ -284,7 +273,10 @@ export default function Backtest() {
                     min={10000}
                     step={1000}
                     value={params.capital}
-                    onChange={(e) => updateParam("capital", e.target.value)}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      updateParam("capital", v === "" ? "" : Number(v));
+                    }}
                     className="h-10 w-full rounded border border-slate-300 bg-white px-3 font-mono text-sm text-slate-950 outline-none transition-colors focus:border-orange-500 focus:ring-2 focus:ring-orange-500/10"
                   />
                 </label>
@@ -302,11 +294,6 @@ export default function Backtest() {
 
               <div>
                 <label className="mb-2 block text-xs text-slate-500">策略选择</label>
-                {strategyError && (
-                  <Notice tone="warn" variant="light" className="mb-3">
-                    {strategyError}
-                  </Notice>
-                )}
                 <div className="space-y-2">
                   {strategies.map((strategy, index) => {
                     const active = selectedStrategy === strategy.key;
