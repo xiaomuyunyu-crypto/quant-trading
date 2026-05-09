@@ -18,7 +18,6 @@ concurrency:
 
 jobs:
   deploy:
-    name: Build and deploy frontend
     runs-on: ubuntu-latest
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -26,26 +25,19 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dependencies
-        run: npm ci
+      - run: npm ci
         working-directory: frontend
 
-      - name: Build
-        run: npm run build
+      - run: npm run build
         working-directory: frontend
 
-      - name: Deploy to Vercel
+      - name: Deploy
         run: |
           npx vercel deploy --prebuilt --prod --yes \
-            --token="${{ secrets.VERCEL_TOKEN }}" \
-            --scope="${{ secrets.VERCEL_ORG_ID }}"
+            --token="${{ secrets.VERCEL_TOKEN }}"
