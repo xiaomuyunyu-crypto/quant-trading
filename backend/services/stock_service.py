@@ -3,10 +3,9 @@
 
 from __future__ import annotations
 
-from data.storage.database import init_db, get_session
+from data.storage.database import get_session
 from data.storage.repository import (
     query_stocks,
-    query_klines,
     add_watchlist,
     remove_watchlist,
     query_watchlist,
@@ -16,6 +15,7 @@ from sqlalchemy import select
 
 
 def get_all_stocks(exchange: str | None = None) -> list[dict]:
+    _ensure_stocks_populated()
     df = query_stocks(exchange=exchange)
     if df.empty:
         return []
@@ -31,9 +31,11 @@ def _ensure_stocks_populated() -> int:
 
     try:
         from data.fetcher.akshare_fetcher import fetch_stock_list
+        from data.cleaner.cleaner import clean_stock_list
         from data.storage.repository import upsert_stocks
 
-        df = fetch_stock_list()
+        raw = fetch_stock_list()
+        df = clean_stock_list(raw) if raw is not None and not raw.empty else raw
         if df is not None and not df.empty:
             upsert_stocks(df)
             with get_session() as session:
@@ -106,21 +108,42 @@ def search_stocks(keyword: str, limit: int = 10) -> list[dict]:
 
 
 def get_stock_detail(code: str) -> dict | None:
+    lookup_code = _normalize_stock_code(code)
     with get_session() as session:
-        stock = session.get(StockModel, code.zfill(6))
-        if stock is None:
-            return None
-        watch = session.get(WatchlistModel, code.zfill(6))
+        stock = session.get(StockModel, lookup_code)
+        watch = session.get(WatchlistModel, lookup_code)
+
+    if stock is None:
+        _ensure_stocks_populated()
+        with get_session() as session:
+            stock = session.get(StockModel, lookup_code)
+            watch = session.get(WatchlistModel, lookup_code)
+
+    if stock is None and watch is None:
+        return None
+
+    if stock is None:
         return {
-            "code": stock.code,
-            "name": stock.name,
-            "exchange": stock.exchange,
-            "industry": stock.industry,
-            "list_date": stock.list_date.isoformat() if stock.list_date else None,
+            "code": lookup_code,
+            "name": watch.name or "",
+            "exchange": "",
+            "industry": None,
+            "list_date": None,
             "is_watchlist": watch is not None,
-            "tags": watch.tags if watch else [],
-            "notes": watch.notes if watch else None,
+            "tags": watch.tags,
+            "notes": watch.notes,
         }
+
+    return {
+        "code": stock.code,
+        "name": stock.name,
+        "exchange": stock.exchange,
+        "industry": stock.industry,
+        "list_date": stock.list_date.isoformat() if stock.list_date else None,
+        "is_watchlist": watch is not None,
+        "tags": watch.tags if watch else [],
+        "notes": watch.notes if watch else None,
+    }
 
 
 def get_klines(
@@ -129,8 +152,10 @@ def get_klines(
     end_date: str | None = None,
     frequency: str = "D",
 ) -> list[dict]:
-    df = query_klines(code, start_date=start_date, end_date=end_date, frequency=frequency)
-    if df.empty:
+    from backend.core.kline_utils import get_klines_df
+
+    df = get_klines_df(code, start_date=start_date, end_date=end_date, frequency=frequency)
+    if df is None or df.empty:
         return []
     for col in ("date",):
         if col in df.columns:
@@ -234,3 +259,10 @@ def _market_label(exchange: str | None) -> str:
         "HK": "港股", "US": "美股",
     }
     return mapping.get(exchange or "", exchange or "-")
+
+
+def _normalize_stock_code(code: str) -> str:
+    value = str(code or "").strip()
+    if value.isdigit() and len(value) <= 6:
+        return value.zfill(6)
+    return value
