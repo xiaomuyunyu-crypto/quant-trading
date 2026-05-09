@@ -18,7 +18,7 @@ router = APIRouter(prefix="/backtest", tags=["策略回测"])
 
 PRESET_STRATEGIES: list[dict] = [
     {"key": "triple_macd_ma250", "name": "三周期MACD+MA250状态机",
-     "desc": "月线MACD→MA250→周线→日线，三级过滤八状态",
+     "desc": "月线MACD->MA250->周线->日线，三级过滤八状态",
      "category": "我的策略", "params": {}},
 ]
 
@@ -209,10 +209,16 @@ def optimize_parameters(
 @router.get("/strategies")
 def list_strategies():
     """获取可用策略列表（含分组）"""
+    categories_order = ["我的策略", "单指标", "组合策略"]
+    grouped = {}
+    for s in PRESET_STRATEGIES:
+        cat = s.get("category", "其他")
+        grouped.setdefault(cat, []).append(s)
     return {
         "total": len(PRESET_STRATEGIES),
         "categories": [
-            {"name": "我的策略", "strategies": PRESET_STRATEGIES},
+            {"name": c, "strategies": grouped[c]}
+            for c in categories_order if c in grouped
         ],
     }
 
