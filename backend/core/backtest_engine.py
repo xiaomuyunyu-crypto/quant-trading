@@ -54,7 +54,7 @@ def run_backtest(
     strategy:
         "macd_daily"      日线MACD绿柱连续缩短3天买、红柱连续缩短3天卖
         "macd_weekly"     周线MACD金叉买、死叉卖
-        "rsi_oversold"    RSI<20买、RSI>70卖，连续3日强化
+        "rsi_oversold"    RSI连续3日<20或连续2日<16买；RSI>92或连续2日>85卖
         "ma_cross"        MA5上穿MA20买、下穿MA20卖
 
     规则：全仓进出 + 收盘价 + 忽略手续费
@@ -162,6 +162,9 @@ def _generate_strategy_signals(df: pd.DataFrame, strategy: str) -> list[str]:
     if strategy.startswith("composite_"):
         return _generate_composite_signals(df, strategy)
 
+    if strategy == "triple_macd_ma250":
+        return _generate_triple_macd_signals(df)
+
     if strategy == "macd_hist":
         # MACD柱趋势策略：红柱连续2天缩短→卖出，绿柱从最低点回升3次→买入
         dif, dea, hist = calc_macd(close)
@@ -240,33 +243,29 @@ def _generate_strategy_signals(df: pd.DataFrame, strategy: str) -> list[str]:
 
     elif strategy == "rsi_oversold":
         rsi = calc_rsi(close, 14)
-        under_20_count = 0
-        over_70_count = 0
         signals = []
         in_position = False
         for i in range(n):
             if np.isnan(rsi[i]):
                 signals.append("HOLD")
                 continue
-            if rsi[i] < 20:
-                under_20_count += 1
-                over_70_count = 0
-                if under_20_count >= 3 and not in_position:
-                    signals.append("BUY")
-                    in_position = True
-                else:
-                    signals.append("HOLD")
-            elif rsi[i] > 70:
-                over_70_count += 1
-                under_20_count = 0
-                if over_70_count >= 3 and in_position:
-                    signals.append("SELL")
-                    in_position = False
-                else:
-                    signals.append("HOLD")
+
+            buy_signal = (
+                _rsi_recent_condition(rsi, i, threshold=20, days=3, direction="below")
+                or _rsi_recent_condition(rsi, i, threshold=16, days=2, direction="below")
+            )
+            sell_signal = (
+                rsi[i] > 92
+                or _rsi_recent_condition(rsi, i, threshold=85, days=2, direction="above")
+            )
+
+            if buy_signal and not in_position:
+                signals.append("BUY")
+                in_position = True
+            elif sell_signal and in_position:
+                signals.append("SELL")
+                in_position = False
             else:
-                under_20_count = 0
-                over_70_count = 0
                 signals.append("HOLD")
         return signals
 
@@ -357,12 +356,38 @@ def _macd_hist_shrinking(hist: np.ndarray, idx: int, color: str, days: int = 3) 
     return all(heights[i] < heights[i - 1] for i in range(1, len(heights)))
 
 
+def _rsi_recent_condition(
+    rsi: np.ndarray,
+    idx: int,
+    threshold: float,
+    days: int,
+    direction: str,
+) -> bool:
+    """判断最近days天RSI是否连续高于/低于指定阈值。"""
+    start = idx - days + 1
+    if start < 0:
+        return False
+    values = rsi[start:idx + 1]
+    if len(values) < days or np.isnan(values).any():
+        return False
+    if direction == "below":
+        return bool(np.all(values < threshold))
+    if direction == "above":
+        return bool(np.all(values > threshold))
+    return False
+
+
 def _trade_reason(strategy: str, action: str) -> str:
     if strategy == "macd_daily":
         if action == "BUY":
             return "MACD绿柱连续缩短3天"
         if action == "SELL":
             return "MACD红柱连续缩短3天"
+    if strategy == "rsi_oversold":
+        if action == "BUY":
+            return "RSI连续3天低于20或连续2天低于16"
+        if action == "SELL":
+            return "RSI单日大于92或连续2天大于85"
     return f"{strategy}{'买入' if action == 'BUY' else '卖出'}信号"
 
 
@@ -432,6 +457,31 @@ def run_backtest_with_signals(df: pd.DataFrame, code: str, signals: list[str],
         total_trades=len([t for t in trades if "回测结束" not in t.action]),
         equity_curve=equity_curve, trades=trades, strategy_name=strategy_name,
     )
+
+
+def _generate_triple_macd_signals(df: pd.DataFrame) -> list[str]:
+    """三周期MACD+MA250状态机"""
+    import sys
+    from pathlib import Path
+    project_root = Path(__file__).resolve().parent.parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
+    from strategy.components.state_machine import (
+        TripleMACDStateMachine, prepare_dataframes,
+    )
+
+    min_bars = 260
+    if len(df) < min_bars:
+        return ["HOLD"] * len(df)
+
+    try:
+        daily, weekly, monthly = prepare_dataframes(df)
+        sm = TripleMACDStateMachine(daily, weekly, monthly)
+        signals, _ = sm.run()
+        return signals
+    except Exception:
+        return ["HOLD"] * len(df)
 
 
 def _generate_composite_signals(df: pd.DataFrame, strategy: str) -> list[str]:

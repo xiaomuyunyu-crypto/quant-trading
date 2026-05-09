@@ -63,13 +63,12 @@ class RSISignal(SignalComponent):
     """
     RSI 超买超卖信号。
 
-    参数：
-        oversold: 超卖阈值（默认30）
-        overbought: 超买阈值（默认70）
-        consecutive_days: 连续N天超卖/超买才触发强信号
+    规则：
+      - 买入：连续3天 RSI<20，或连续2天 RSI<16
+      - 卖出：单日 RSI>92，或连续2天 RSI>85
     """
 
-    def __init__(self, oversold=30, overbought=70, consecutive_days=3):
+    def __init__(self, oversold=20, overbought=85, consecutive_days=2):
         self.oversold = oversold
         self.overbought = overbought
         self.consecutive_days = consecutive_days
@@ -83,20 +82,22 @@ class RSISignal(SignalComponent):
         row = df.iloc[-1]
         rsi = row.get("RSI", 50) or 50
         oversold_days = int(row.get("RSI_oversold_days", 0) or 0)
+        deep_oversold_days = int(row.get("RSI_deep_oversold_days", 0) or 0)
         overbought_days = int(row.get("RSI_overbought_days", 0) or 0)
+        extreme_overbought = bool(row.get("RSI_extreme_overbought", False))
 
-        if oversold_days >= self.consecutive_days:
+        if oversold_days >= 3:
             return SignalOutput(signal="BUY", confidence=0.9,
-                                reason=f"RSI连续{oversold_days}天超卖(RSI={rsi:.0f})，强烈买入")
-        elif rsi <= self.oversold:
-            return SignalOutput(signal="BUY", confidence=0.6,
-                                reason=f"RSI超卖 RSI={rsi:.0f}")
-        elif overbought_days >= self.consecutive_days:
+                                reason=f"RSI连续{oversold_days}天低于20(RSI={rsi:.0f})，观察反转买入")
+        elif deep_oversold_days >= 2:
+            return SignalOutput(signal="BUY", confidence=0.9,
+                                reason=f"RSI连续{deep_oversold_days}天低于16(RSI={rsi:.0f})，深度超卖买入")
+        elif extreme_overbought:
             return SignalOutput(signal="SELL", confidence=0.9,
-                                reason=f"RSI连续{overbought_days}天超买(RSI={rsi:.0f})，强烈卖出")
-        elif rsi >= self.overbought:
-            return SignalOutput(signal="SELL", confidence=0.6,
-                                reason=f"RSI超买 RSI={rsi:.0f}")
+                                reason=f"RSI单日大于92(RSI={rsi:.0f})，极端超买卖出")
+        elif overbought_days >= 2:
+            return SignalOutput(signal="SELL", confidence=0.9,
+                                reason=f"RSI连续{overbought_days}天大于85(RSI={rsi:.0f})，超买卖出")
 
         return SignalOutput(reason=f"RSI中性({rsi:.0f})")
 

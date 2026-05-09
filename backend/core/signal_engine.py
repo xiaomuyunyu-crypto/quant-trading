@@ -128,6 +128,41 @@ def detect_all_crosses(fast: np.ndarray, slow: np.ndarray) -> list[int]:
     return result
 
 
+def _rsi_recent_condition(
+    rsi: np.ndarray,
+    idx: int,
+    threshold: float,
+    days: int,
+    direction: str,
+) -> bool:
+    start = idx - days + 1
+    if start < 0:
+        return False
+    values = rsi[start:idx + 1]
+    if len(values) < days or np.isnan(values).any():
+        return False
+    if direction == "below":
+        return bool(np.all(values < threshold))
+    if direction == "above":
+        return bool(np.all(values > threshold))
+    return False
+
+
+def _rsi_recent_count(rsi: np.ndarray, threshold: float, direction: str) -> int:
+    count = 0
+    for i in range(len(rsi) - 1, -1, -1):
+        value = rsi[i]
+        if np.isnan(value):
+            break
+        if direction == "below" and value < threshold:
+            count += 1
+        elif direction == "above" and value > threshold:
+            count += 1
+        else:
+            break
+    return count
+
+
 # ─── 信号评分 ───
 
 @dataclass
@@ -223,29 +258,33 @@ def analyze_period(df: pd.DataFrame, frequency: str) -> PeriodSignal | None:
     rsi_values = calc_rsi(close, 14)
     sig.rsi_value = float(rsi_values[-1]) if not np.isnan(rsi_values[-1]) else 50.0
 
-    if sig.rsi_value < 20:
+    rsi_buy_signal = (
+        _rsi_recent_condition(rsi_values, len(rsi_values) - 1, threshold=20, days=3, direction="below")
+        or _rsi_recent_condition(rsi_values, len(rsi_values) - 1, threshold=16, days=2, direction="below")
+    )
+    rsi_sell_signal = (
+        sig.rsi_value > 92
+        or _rsi_recent_condition(rsi_values, len(rsi_values) - 1, threshold=85, days=2, direction="above")
+    )
+
+    if rsi_buy_signal:
         sig.rsi_status = "超卖"
-        consecutive = 0
-        for i in range(len(rsi_values) - 1, -1, -1):
-            if not np.isnan(rsi_values[i]) and rsi_values[i] < 20:
-                consecutive += 1
-            else:
-                break
-        details.append(f"RSI超卖{sig.rsi_value:.0f}")
-        boost = min(0.2, 0.05 * consecutive)
+        below_20 = _rsi_recent_count(rsi_values, threshold=20, direction="below")
+        below_16 = _rsi_recent_count(rsi_values, threshold=16, direction="below")
+        if below_16 >= 2:
+            details.append(f"RSI连续{below_16}日低于16，深度超卖")
+        else:
+            details.append(f"RSI连续{below_20}日低于20，观察反转")
+        boost = min(0.2, 0.05 * max(below_20, below_16))
         sig.score += 0.15 + boost
-        if consecutive >= 3:
-            details.append(f"RSI连续{consecutive}日超卖，信号增强")
-    elif sig.rsi_value > 70:
+    elif rsi_sell_signal:
         sig.rsi_status = "超买"
-        consecutive = 0
-        for i in range(len(rsi_values) - 1, -1, -1):
-            if not np.isnan(rsi_values[i]) and rsi_values[i] > 70:
-                consecutive += 1
-            else:
-                break
-        details.append(f"RSI超买{sig.rsi_value:.0f}")
-        boost = min(0.2, 0.05 * consecutive)
+        above_85 = _rsi_recent_count(rsi_values, threshold=85, direction="above")
+        if sig.rsi_value > 92:
+            details.append(f"RSI单日大于92({sig.rsi_value:.0f})，极端超买")
+        else:
+            details.append(f"RSI连续{above_85}日大于85，超买")
+        boost = min(0.2, 0.05 * max(above_85, 1))
         sig.score -= 0.15 + boost
     elif sig.rsi_value > 50:
         sig.rsi_status = "偏强"

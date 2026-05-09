@@ -56,8 +56,7 @@ class SignalEngine:
     多周期信号引擎 v2 —— 触发+确认模式。
 
     参数：
-        rsi_oversold: RSI 超卖阈值（低于此值 → BUY信号）
-        rsi_overbought: RSI 超买阈值（高于此值 → SELL信号）
+        rsi_oversold/rsi_overbought: 保留兼容参数；当前RSI采用极端值+连续天数规则
         confirm_required: 需要几个周期确认才触发信号（1-3，默认2）
         anti_flicker_window: 防反复窗口
     """
@@ -121,9 +120,15 @@ class SignalEngine:
         # 2) RSI
         rsi = row.get("RSI", 50) or 50
         ts.rsi_value = float(rsi)
-        if rsi <= self.rsi_oversold:
+        oversold_days = int(row.get("RSI_oversold_days", 0) or 0)
+        deep_oversold_days = int(row.get("RSI_deep_oversold_days", 0) or 0)
+        overbought_days = int(row.get("RSI_overbought_days", 0) or 0)
+        extreme_overbought = bool(row.get("RSI_extreme_overbought", False))
+        rsi_buy_signal = oversold_days >= 3 or deep_oversold_days >= 2
+        rsi_sell_signal = extreme_overbought or overbought_days >= 2
+        if rsi_buy_signal:
             ts.rsi_state = "oversold"
-        elif rsi >= self.rsi_overbought:
+        elif rsi_sell_signal:
             ts.rsi_state = "overbought"
         else:
             ts.rsi_state = "neutral"
@@ -152,9 +157,9 @@ class SignalEngine:
         else:
             score = -0.15
 
-        if rsi <= 25:
+        if rsi_buy_signal:
             score += 0.25
-        elif rsi >= 75:
+        elif rsi_sell_signal:
             score -= 0.25
 
         if ts.ma_bullish:

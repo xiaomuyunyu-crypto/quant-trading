@@ -42,6 +42,12 @@ const MOCK_CATEGORIES = [
     ],
   },
 ];
+  {
+    name: "高级策略",
+    strategies: [
+      { key: "triple_macd_ma250", name: "三周期MACD+MA250状态机", desc: "月线MACD→MA250→周线→日线，八状态", params: {} },
+    ],
+  },
 
 const initialStock = { code: "000001", name: "平安银行", market_label: "深A" };
 

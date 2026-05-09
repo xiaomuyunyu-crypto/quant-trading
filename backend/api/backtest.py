@@ -24,7 +24,7 @@ PRESET_STRATEGIES: list[dict] = [
      "category": "单指标", "params": {}},
     {"key": "macd_weekly", "name": "MACD周线趋势", "desc": "周线MACD金叉买入，死叉卖出",
      "category": "单指标", "params": {}},
-    {"key": "rsi_oversold", "name": "RSI超买超卖", "desc": "RSI连续3日<20买入，连续3日>70卖出",
+    {"key": "rsi_oversold", "name": "RSI极值反转", "desc": "连续3日<20或连续2日<16买入；单日>92或连续2日>85卖出",
      "category": "单指标", "params": {}},
     {"key": "ma_cross", "name": "双均线交叉(5,20)", "desc": "MA5上穿MA20买入，下穿MA20卖出",
      "category": "单指标", "params": {}},
@@ -37,6 +37,9 @@ PRESET_STRATEGIES: list[dict] = [
      "category": "组合策略", "params": {"signal_mode": "consensus"}},
     {"key": "composite_mtf", "name": "四维多周期", "desc": "日/周/月三周期分别分析，加权汇总",
      "category": "组合策略", "params": {"signal_mode": "majority", "multi_timeframe": True}},
+    {"key": "triple_macd_ma250", "name": "三周期MACD+MA250状态机",
+     "desc": "月线MACD过滤→MA250趋势边界→周线窗口→日线执行，八状态状态机",
+     "category": "高级策略", "params": {}},
 ]
 
 
@@ -231,6 +234,7 @@ def list_strategies():
         "categories": [
             {"name": "单指标", "strategies": [s for s in PRESET_STRATEGIES if s["category"] == "单指标"]},
             {"name": "组合策略", "strategies": [s for s in PRESET_STRATEGIES if s["category"] == "组合策略"]},
+            {"name": "高级策略", "strategies": [s for s in PRESET_STRATEGIES if s["category"] == "高级策略"]},
         ],
     }
 

@@ -106,10 +106,18 @@ def compute_rsi(df: pd.DataFrame, period: int = 14) -> pd.DataFrame:
     rs = avg_gain / avg_loss.replace(0, np.nan)
     df["RSI"] = 100.0 - (100.0 / (1.0 + rs))
 
-    # RSI 连续超卖/超买天数
-    df["RSI_oversold_days"] = (df["RSI"] < 30).astype(int).rolling(window=5, min_periods=1).sum()
-    df["RSI_overbought_days"] = (df["RSI"] > 70).astype(int).rolling(window=5, min_periods=1).sum()
+    # RSI 连续超卖/超买天数（用于反转观察）
+    df["RSI_oversold_days"] = _consecutive_true_count(df["RSI"] < 20)
+    df["RSI_deep_oversold_days"] = _consecutive_true_count(df["RSI"] < 16)
+    df["RSI_overbought_days"] = _consecutive_true_count(df["RSI"] > 85)
+    df["RSI_extreme_overbought"] = df["RSI"] > 92
     return df
+
+
+def _consecutive_true_count(mask: pd.Series) -> pd.Series:
+    """计算布尔序列当前位置向前连续为True的天数。"""
+    group = (mask != mask.shift()).cumsum()
+    return mask.astype(int).groupby(group).cumsum()
 
 
 # ─── 量价分析 ───
@@ -145,14 +153,49 @@ def compute_volume_price(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# ─── MA250 + 穿越检测 ───
+
+def compute_ma250(df: pd.DataFrame) -> pd.DataFrame:
+    """计算 MA250 及价格穿越标记。追加 MA250 / MA250_cross (1=上穿, -1=下穿)"""
+    df = df.copy()
+    df["MA250"] = df["close"].rolling(window=250).mean()
+    df["MA250_cross"] = 0
+    prev_close = df["close"].shift(1)
+    prev_ma250 = df["MA250"].shift(1)
+    cross_up = (prev_close <= prev_ma250) & (df["close"] > df["MA250"])
+    cross_down = (prev_close >= prev_ma250) & (df["close"] < df["MA250"])
+    df.loc[cross_up, "MA250_cross"] = 1
+    df.loc[cross_down, "MA250_cross"] = -1
+    return df
+
+
+# ─── MACD柱趋势 ───
+
+def compute_macd_bar_trend(df: pd.DataFrame) -> pd.DataFrame:
+    """MACD柱趋势特征。追加：MACD_green_shrink / MACD_red_grow / MACD_red_shrink / MACD_red_grow_consecutive"""
+    df = df.copy()
+    if "MACD_hist" not in df.columns:
+        df = compute_macd(df)
+    prev = df["MACD_hist"].shift(1)
+    df["MACD_green_shrink"] = (df["MACD_hist"] < 0) & (df["MACD_hist"] > prev)
+    df["MACD_red_grow"] = (df["MACD_hist"] > 0) & (df["MACD_hist"] > prev)
+    df["MACD_red_shrink"] = (df["MACD_hist"] > 0) & (df["MACD_hist"] < prev)
+    df["MACD_green_grow_consecutive"] = _consecutive_true_count(
+        (df["MACD_hist"] < 0) & (df["MACD_hist"] < prev))
+    df["MACD_red_grow_consecutive"] = _consecutive_true_count(df["MACD_red_grow"])
+    return df
+
+
 # ─── 批量计算 ───
 
 def compute_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """对单周期 DataFrame 计算全部四个指标，返回追加了所有指标列的 DataFrame"""
-    df = compute_ma(df)
+    """对单周期 DataFrame 计算全部指标（含MA250和柱趋势）"""
+    df = compute_ma(df, periods=[5, 10, 20, 60, 250])
     df = compute_macd(df)
     df = compute_rsi(df)
     df = compute_volume_price(df)
+    df = compute_ma250(df)
+    df = compute_macd_bar_trend(df)
     return df
 
 
