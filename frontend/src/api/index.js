@@ -1,7 +1,16 @@
 import axios from "axios";
 
+function normalizeApiBaseUrl(value) {
+  const raw = (value || "").trim().replace(/\/+$/, "");
+  if (!raw) return "/api";
+  return raw.endsWith("/api") ? raw : `${raw}/api`;
+}
+
+export const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
+export const API_MODE = API_BASE_URL === "/api" ? "local-proxy" : "remote";
+
 const client = axios.create({
-  baseURL: "/api",
+  baseURL: API_BASE_URL,
   timeout: 30000,
   headers: { "Content-Type": "application/json" },
 });

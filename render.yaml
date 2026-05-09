@@ -1,9 +1,18 @@
 services:
   - type: web
-    name: quant-trading
-    env: python
+    name: quant-trading-api
+    runtime: python
+    region: singapore
+    plan: starter
     buildCommand: pip install --no-cache-dir -r requirements.txt
     startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    disk:
+      name: quant-trading-data
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: PYTHON_VERSION
-        value: 3.11.11
+        value: 3.12.3
+      - key: QUANT_DB_PATH
+        value: /var/data/quant.db
