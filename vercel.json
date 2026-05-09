@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://quant-trading-pyyo.onrender.com/api/:path*"
+    }
+  ]
+}
