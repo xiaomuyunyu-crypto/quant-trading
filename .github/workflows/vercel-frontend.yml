@@ -40,4 +40,5 @@ jobs:
       - name: Deploy
         run: |
           npx vercel deploy --prebuilt --prod --yes \
-            --token="${{ secrets.VERCEL_TOKEN }}"
+            --token="${{ secrets.VERCEL_TOKEN }}" \
+            --cwd frontend
