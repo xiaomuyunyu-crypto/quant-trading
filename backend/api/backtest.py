@@ -17,29 +17,9 @@ router = APIRouter(prefix="/backtest", tags=["策略回测"])
 # ─── 预存策略定义 ───
 
 PRESET_STRATEGIES: list[dict] = [
-    # 单指标策略
-    {"key": "macd_daily", "name": "MACD金叉死叉-日线", "desc": "日线MACD金叉买入，死叉卖出",
-     "category": "单指标", "params": {}},
-    {"key": "macd_hist", "name": "MACD柱趋势", "desc": "绿柱从最低点回升3天买入，红柱连续2天缩短卖出",
-     "category": "单指标", "params": {}},
-    {"key": "macd_weekly", "name": "MACD周线趋势", "desc": "周线MACD金叉买入，死叉卖出",
-     "category": "单指标", "params": {}},
-    {"key": "rsi_oversold", "name": "RSI极值反转", "desc": "连续3日<20或连续2日<16买入；单日>92或连续2日>85卖出",
-     "category": "单指标", "params": {}},
-    {"key": "ma_cross", "name": "双均线交叉(5,20)", "desc": "MA5上穿MA20买入，下穿MA20卖出",
-     "category": "单指标", "params": {}},
-    # 组件化组合策略
-    {"key": "composite_majority", "name": "四维多数表决", "desc": "MACD+RSI+均线+量价，多数表决决定买卖",
-     "category": "组合策略", "params": {"signal_mode": "majority"}},
-    {"key": "composite_weighted", "name": "四维加权评分", "desc": "四指标按置信度加权，综合判定买卖信号",
-     "category": "组合策略", "params": {"signal_mode": "weighted"}},
-    {"key": "composite_consensus", "name": "四维全票一致", "desc": "四个指标全部同意才出信号，追求高胜率",
-     "category": "组合策略", "params": {"signal_mode": "consensus"}},
-    {"key": "composite_mtf", "name": "四维多周期", "desc": "日/周/月三周期分别分析，加权汇总",
-     "category": "组合策略", "params": {"signal_mode": "majority", "multi_timeframe": True}},
     {"key": "triple_macd_ma250", "name": "三周期MACD+MA250状态机",
-     "desc": "月线MACD过滤→MA250趋势边界→周线窗口→日线执行，八状态状态机",
-     "category": "高级策略", "params": {}},
+     "desc": "月线MACD→MA250→周线→日线，三级过滤八状态",
+     "category": "我的策略", "params": {}},
 ]
 
 
@@ -232,9 +212,7 @@ def list_strategies():
     return {
         "total": len(PRESET_STRATEGIES),
         "categories": [
-            {"name": "单指标", "strategies": [s for s in PRESET_STRATEGIES if s["category"] == "单指标"]},
-            {"name": "组合策略", "strategies": [s for s in PRESET_STRATEGIES if s["category"] == "组合策略"]},
-            {"name": "高级策略", "strategies": [s for s in PRESET_STRATEGIES if s["category"] == "高级策略"]},
+            {"name": "我的策略", "strategies": PRESET_STRATEGIES},
         ],
     }
 

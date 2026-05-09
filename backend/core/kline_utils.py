@@ -24,6 +24,7 @@ def get_klines_df(
 
     try:
         from data.fetcher.akshare_fetcher import fetch_daily_kline
+        from data.cleaner.cleaner import clean_kline
         from data.storage.repository import upsert_klines
 
         fetched = fetch_daily_kline(
@@ -33,7 +34,10 @@ def get_klines_df(
         )
         if fetched is None or fetched.empty:
             return None
-        upsert_klines(fetched)
+        cleaned = clean_kline(fetched)
+        if cleaned.empty:
+            return None
+        upsert_klines(cleaned)
         return _query_klines_from_db(lookup_code, start_date, end_date, frequency)
     except Exception:
         return None

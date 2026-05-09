@@ -24,36 +24,18 @@ import { formatCurrency, formatNumber, formatPercent, toneByValue } from "../lib
 
 const MOCK_CATEGORIES = [
   {
-    name: "单指标",
-    strategies: [
-      { key: "macd_daily", name: "MACD金叉死叉-日线", desc: "日线MACD金叉买入，死叉卖出", params: {} },
-      { key: "macd_hist", name: "MACD柱趋势", desc: "绿柱回升3天买入，红柱连续2天缩短卖出", params: {} },
-      { key: "rsi_oversold", name: "RSI极值反转", desc: "连续超卖买入，极端超买卖出", params: {} },
-      { key: "ma_cross", name: "双均线交叉(5,20)", desc: "MA5上穿MA20买入，下穿卖出", params: {} },
-    ],
-  },
-  {
-    name: "组合策略",
-    strategies: [
-      { key: "composite_majority", name: "四维多数表决", desc: "MACD+RSI+均线+量价，多数表决", params: {} },
-      { key: "composite_weighted", name: "四维加权评分", desc: "四指标按置信度加权", params: {} },
-      { key: "composite_consensus", name: "四维全票一致", desc: "全部同意才触发，追求高胜率", params: {} },
-      { key: "composite_mtf", name: "四维多周期", desc: "日/周/月三周期加权汇总", params: {} },
-    ],
-  },
-];
-  {
-    name: "高级策略",
+    name: "我的策略",
     strategies: [
       { key: "triple_macd_ma250", name: "三周期MACD+MA250状态机", desc: "月线MACD→MA250→周线→日线，八状态", params: {} },
     ],
   },
+];
 
 const initialStock = { code: "000001", name: "平安银行", market_label: "深A" };
 
 export default function Backtest() {
   const [categories, setCategories] = useState([]);
-  const [selectedStrategy, setSelectedStrategy] = useState("composite_majority");
+  const [selectedStrategy, setSelectedStrategy] = useState("triple_macd_ma250");
   const [stockInput, setStockInput] = useState(formatStockLabel(initialStock));
   const [selectedStock, setSelectedStock] = useState(initialStock);
   const [params, setParams] = useState({ code: initialStock.code, days: 365, capital: 10000 });
@@ -109,7 +91,7 @@ export default function Backtest() {
       setError("请选择一个策略");
       return;
     }
-    if (nextMode === "optimize" && !["ma_cross", "macd_daily"].includes(selectedStrategy)) {
+    if (nextMode === "optimize" && !["triple_macd_ma250"].includes(selectedStrategy)) {
       setError("当前后端参数优化只支持 ma_cross 和 macd_daily，请先选择对应策略");
       return;
     }

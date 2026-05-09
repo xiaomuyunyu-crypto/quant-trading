@@ -8,11 +8,18 @@
         "c:/Users/晓/Desktop/量化deepseek"
       ]
     },
-    "git": {
+    "sequential-thinking": {
       "command": "npx",
       "args": [
         "-y",
-        "@modelcontextprotocol/server-git"
+        "@modelcontextprotocol/server-sequential-thinking"
+      ]
+    },
+    "time": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@guanxiong/mcp-server-time"
       ]
     }
   }
