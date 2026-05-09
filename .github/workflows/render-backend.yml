@@ -1,0 +1,47 @@
+name: Deploy Backend to Render
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - backend/**
+      - data/**
+      - strategy/**
+      - requirements.txt
+      - render.yaml
+      - .github/workflows/render-backend.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Trigger Render deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Trigger Render deploy hook
+        run: |
+          if [ -z "${{ secrets.RENDER_DEPLOY_HOOK }}" ]; then
+            echo "RENDER_DEPLOY_HOOK secret is not set — skipping Render deploy."
+            echo "请在 Render Dashboard → quant-trading-pyyo → Settings → Deploy Hook 创建，"
+            echo "然后将 URL 添加到 GitHub Secrets：RENDER_DEPLOY_HOOK"
+            exit 0
+          fi
+          echo "正在触发 Render 部署..."
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "HTTP $HTTP_CODE — $BODY"
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "Render 部署已触发"
+          else
+            echo "Render 触发失败，请检查 Deploy Hook"
+            exit 1
+          fi
