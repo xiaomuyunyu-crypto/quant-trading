@@ -33,16 +33,16 @@ export default function MainLayout() {
     (location.pathname.startsWith("/stock/") ? "标的分析" : "量化工作台");
 
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-950 text-slate-100">
-      <aside className="flex w-60 shrink-0 flex-col border-r border-slate-800 bg-slate-950/95">
-        <div className="border-b border-slate-800 px-5 py-4">
+    <div className="flex h-screen overflow-hidden bg-white text-slate-950">
+      <aside className="flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
+        <div className="border-b border-slate-200 px-5 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-blue-500/40 bg-blue-500/10 text-blue-300">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-600">
               <Activity className="h-5 w-5" strokeWidth={1.8} />
             </div>
             <div>
-              <div className="text-sm font-semibold text-white">量化交易系统</div>
-              <div className="mt-0.5 text-xs text-slate-600">双模式工作台</div>
+              <div className="text-sm font-semibold text-slate-950">量化交易系统</div>
+              <div className="mt-0.5 text-xs text-slate-500">双模式工作台</div>
             </div>
           </div>
         </div>
@@ -58,8 +58,8 @@ export default function MainLayout() {
                 className={({ isActive }) =>
                   `flex h-10 items-center gap-3 rounded px-3 text-sm transition-colors ${
                     isActive
-                      ? "bg-blue-600 text-white shadow-sm shadow-blue-950/50"
-                      : "text-slate-400 hover:bg-slate-900 hover:text-slate-100"
+                      ? "bg-blue-600 text-white shadow-sm shadow-blue-100"
+                      : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
                   }`
                 }
               >
@@ -70,8 +70,8 @@ export default function MainLayout() {
           })}
         </nav>
 
-        <div className="border-t border-slate-800 px-4 py-3">
-          <div className="rounded border border-slate-800 bg-slate-900/70 px-3 py-2">
+        <div className="border-t border-slate-200 px-4 py-3">
+          <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2">
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-500">API 模式</span>
               <span
@@ -79,7 +79,7 @@ export default function MainLayout() {
                   API_MODE === "local-proxy" ? "text-emerald-300" : "text-sky-300"
                 }
               >
-                {API_MODE === "local-proxy" ? "本地代理" : "远程后端"}
+              {API_MODE === "local-proxy" ? "本地代理" : "远程后端"}
               </span>
             </div>
             <div className="mt-1 truncate font-mono text-[11px] text-slate-600">
@@ -94,9 +94,9 @@ export default function MainLayout() {
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-950/75 px-5">
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5">
           <div>
-            <div className="text-sm font-medium text-slate-200">{title}</div>
+            <div className="text-sm font-medium text-slate-950">{title}</div>
             <div className="text-xs text-slate-600">
               本地完整交易辅助，Vercel 用于预览和演示
             </div>

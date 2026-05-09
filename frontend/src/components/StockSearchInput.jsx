@@ -134,7 +134,7 @@ export default function StockSearchInput({
       setMessage("");
       try {
         const res = await api.get("/stocks/search", {
-          params: { keyword, limit: 8 },
+          params: { keyword, limit },
         });
         if (canceled) return;
         const apiItems = res.items || [];

@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import {
   BarChart3,
+  ChevronRight,
   FlaskConical,
   LineChart,
   Play,
+  Search,
   SlidersHorizontal,
 } from "lucide-react";
 import api from "../api/index";
@@ -32,6 +34,18 @@ const MOCK_CATEGORIES = [
 ];
 
 const initialStock = { code: "000001", name: "平安银行", market_label: "深A" };
+
+const ROLLING_STOCKS = [
+  { code: "600055", name: "万东医疗", market_label: "沪A", initials: "WDYL" },
+  { code: "600246", name: "万通发展", market_label: "沪A", initials: "WTFZ" },
+  { code: "600309", name: "万华化学", market_label: "沪A", initials: "WHHX" },
+  { code: "600371", name: "万向德农", market_label: "沪A", initials: "WXDN" },
+  { code: "600847", name: "万里股份", market_label: "沪A", initials: "WLGF" },
+  { code: "603010", name: "万盛股份", market_label: "沪A", initials: "WSGF" },
+  { code: "000001", name: "平安银行", market_label: "深A", initials: "PAYH" },
+  { code: "600036", name: "招商银行", market_label: "沪A", initials: "ZSYH" },
+  { code: "300750", name: "宁德时代", market_label: "深A", initials: "NDSD" },
+];
 
 export default function Backtest() {
   const [categories, setCategories] = useState([]);
@@ -137,150 +151,248 @@ export default function Backtest() {
   };
 
   return (
-    <div className="flex min-h-full">
-      <aside className="w-80 shrink-0 border-r border-slate-800 bg-slate-950/50 p-5">
-        <div className="mb-5">
-          <div className="text-base font-semibold text-slate-100">回测参数</div>
-          <p className="mt-1 text-xs leading-5 text-slate-500">
-            MVP 规则：收盘价、满仓进出、忽略手续费。先验证单标的，再扩展组合。
-          </p>
-        </div>
-
-        {loadError && <Notice tone="warn" className="mb-4">{loadError}</Notice>}
-        {error && <Notice tone="error" className="mb-4">{error}</Notice>}
-
-        <div className="space-y-5">
-          <div>
-            <label className="mb-1 block text-xs text-slate-500">回测标的</label>
-            <StockSearchInput
-              value={stockInput}
-              selectedStock={selectedStock}
-              onChange={handleStockInputChange}
-              onSelect={handleStockSelect}
-              onSubmitCode={(code) => updateParam("code", code)}
-              helperText="支持中文名称和6位代码"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="mb-1 block text-xs text-slate-500">回测天数</span>
-              <input
-                type="number"
-                min={30}
-                max={3650}
-                value={params.days}
-                onChange={(e) => updateParam("days", e.target.value)}
-                className="h-10 w-full rounded border border-slate-700 bg-slate-900 px-3 font-mono text-sm outline-none focus:border-blue-500"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs text-slate-500">初始资金</span>
-              <input
-                type="number"
-                min={10000}
-                step={1000}
-                value={params.capital}
-                onChange={(e) => updateParam("capital", e.target.value)}
-                className="h-10 w-full rounded border border-slate-700 bg-slate-900 px-3 font-mono text-sm outline-none focus:border-blue-500"
-              />
-            </label>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-xs text-slate-500">策略选择</label>
-            <div className="max-h-[360px] space-y-4 overflow-auto pr-1">
-              {categories.map((cat) => (
-                <div key={cat.name}>
-                  <div className="mb-2 text-xs font-medium text-slate-600">{cat.name}</div>
-                  <div className="space-y-1.5">
-                    {(cat.strategies || []).map((strategy) => (
-                      <label
-                        key={strategy.key}
-                        className={`flex cursor-pointer items-start gap-2 rounded border px-3 py-2 transition-colors ${
-                          selectedStrategy === strategy.key
-                            ? "border-blue-500/60 bg-blue-500/10"
-                            : "border-slate-800 bg-slate-900/50 hover:border-slate-700"
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="strategy"
-                          value={strategy.key}
-                          checked={selectedStrategy === strategy.key}
-                          onChange={() => setSelectedStrategy(strategy.key)}
-                          className="mt-1 accent-blue-500"
-                        />
-                        <span className="min-w-0">
-                          <span className="block text-xs font-medium text-slate-200">
-                            {strategy.name}
-                          </span>
-                          <span className="mt-0.5 block truncate text-xs text-slate-600">
-                            {strategy.desc}
-                          </span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid gap-2">
-            <Button icon={Play} onClick={() => run("single")} disabled={running}>
-              {running && mode === "single" ? "回测中..." : "开始回测"}
-            </Button>
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                variant="secondary"
-                icon={BarChart3}
-                onClick={() => run("compare")}
-                disabled={running}
-              >
-                策略对比
-              </Button>
-              <Button
-                variant="secondary"
-                icon={SlidersHorizontal}
-                onClick={() => run("optimize")}
-                disabled={running}
-              >
-                参数优化
-              </Button>
-            </div>
-          </div>
-        </div>
-      </aside>
-
-      <main className="min-w-0 flex-1 p-5">
+    <div className="backtest-light min-h-full bg-white text-slate-950">
+      <div className="border-b border-slate-200 bg-white px-5 py-4">
         <PageHeader
           title="策略回测工作台"
-          description="单次回测回答“这个策略能不能用”，策略对比回答“同一标的哪个策略更稳”，参数优化回答“这组参数是否值得继续观察”。"
+          description="先选标的，再选择策略与资金区间。单次回测看可行性，策略对比看稳定性，参数优化只作为继续观察的起点。"
           meta={
             currentStrategy && (
-              <span className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-500">
+              <span className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600">
                 当前策略 {currentStrategy.name}
               </span>
             )
           }
         />
+      </div>
 
-        {running ? (
-          <LoadingState label="正在执行回测计算..." />
-        ) : !result ? (
-          <EmptyState
-            title="请选择模式并开始"
-            description="左侧设置标的、天数、资金和策略后，可执行单股回测、全部策略对比或参数优化。"
-          />
-        ) : result.type === "single" ? (
-          <SingleResult result={result.data} initialCapital={Number(params.capital)} />
-        ) : result.type === "compare" ? (
-          <CompareResult result={result.data} />
-        ) : (
-          <OptimizeResult result={result.data} />
-        )}
-      </main>
+      <div className="grid min-h-[calc(100vh-7.5rem)] gap-5 bg-white p-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+        <aside className="space-y-5">
+          <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-100 px-4 py-3">
+              <div className="flex items-center gap-2">
+                <Search className="h-4 w-4 text-orange-500" strokeWidth={1.8} />
+                <h2 className="text-sm font-semibold text-slate-950">滚动选股</h2>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                支持代码、中文和首字母。接口不可用时会保留本地候选，避免预览页空掉。
+              </p>
+            </div>
+
+            <div className="space-y-4 p-4">
+              <StockSearchInput
+                value={stockInput}
+                selectedStock={selectedStock}
+                onChange={handleStockInputChange}
+                onSelect={handleStockSelect}
+                onSubmitCode={(code) => updateParam("code", code)}
+                placeholder="输入 万 / 600309 / WHHX"
+                helperText="点击输入框后可滚动选择候选标的"
+                variant="light"
+                limit={10}
+                showInitialSuggestions
+              />
+
+              <div className="rounded border border-orange-200 bg-orange-50/50 px-3 py-2">
+                <div className="text-xs text-slate-500">当前标的</div>
+                <div className="mt-1 flex items-end justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-lg font-semibold text-slate-950">
+                      {selectedStock?.name || "手动代码"}
+                    </div>
+                    <div className="mt-0.5 font-mono text-sm text-slate-500">
+                      {params.code || "未选择"}
+                    </div>
+                  </div>
+                  <span className="shrink-0 bg-blue-600 px-2 py-1 text-xs text-white">
+                    {selectedStock?.market_label || selectedStock?.exchange || "A股"}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-600">快速候选</span>
+                  <span className="text-[11px] text-slate-400">可滚动</span>
+                </div>
+                <div className="overflow-hidden rounded border border-slate-200">
+                  <div className="grid grid-cols-[54px_78px_1fr_76px] border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                    <span>市场</span>
+                    <span>代码</span>
+                    <span>名称</span>
+                    <span>首字母</span>
+                  </div>
+                  <div className="max-h-60 overflow-auto bg-white">
+                    {ROLLING_STOCKS.map((stock) => (
+                      <button
+                        key={stock.code}
+                        type="button"
+                        onClick={() => handleStockSelect(stock)}
+                        className={`grid w-full grid-cols-[54px_78px_1fr_76px] items-center border-b border-slate-100 px-3 py-2.5 text-left text-sm transition-colors hover:bg-orange-50 ${
+                          params.code === stock.code ? "bg-orange-50" : "bg-white"
+                        }`}
+                      >
+                        <span className="w-10 bg-blue-600 px-1.5 py-0.5 text-center text-xs text-white">
+                          {stock.market_label}
+                        </span>
+                        <span className="font-mono text-slate-800">{stock.code}</span>
+                        <span className="truncate text-slate-950">{stock.name}</span>
+                        <span className="truncate font-mono text-xs text-slate-500">
+                          {stock.initials}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-4">
+              <h2 className="text-sm font-semibold text-slate-950">回测参数</h2>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                MVP 规则：收盘价、满仓进出、忽略手续费。
+              </p>
+            </div>
+
+            {loadError && <Notice tone="warn" className="mb-4">{loadError}</Notice>}
+            {error && <Notice tone="error" className="mb-4">{error}</Notice>}
+
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="mb-1 block text-xs text-slate-500">回测天数</span>
+                  <input
+                    type="number"
+                    min={30}
+                    max={3650}
+                    value={params.days}
+                    onChange={(e) => updateParam("days", e.target.value)}
+                    className="h-10 w-full rounded border border-slate-300 bg-white px-3 font-mono text-sm text-slate-950 outline-none transition-colors focus:border-orange-500 focus:ring-2 focus:ring-orange-500/10"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs text-slate-500">初始资金</span>
+                  <input
+                    type="number"
+                    min={10000}
+                    step={1000}
+                    value={params.capital}
+                    onChange={(e) => updateParam("capital", e.target.value)}
+                    className="h-10 w-full rounded border border-slate-300 bg-white px-3 font-mono text-sm text-slate-950 outline-none transition-colors focus:border-orange-500 focus:ring-2 focus:ring-orange-500/10"
+                  />
+                </label>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-xs text-slate-500">策略选择</label>
+                <div className="max-h-[300px] space-y-4 overflow-auto pr-1">
+                  {categories.map((cat) => (
+                    <div key={cat.name}>
+                      <div className="mb-2 text-xs font-medium text-slate-500">{cat.name}</div>
+                      <div className="space-y-1.5">
+                        {(cat.strategies || []).map((strategy) => (
+                          <label
+                            key={strategy.key}
+                            className={`flex cursor-pointer items-start gap-2 rounded border px-3 py-2 transition-colors ${
+                              selectedStrategy === strategy.key
+                                ? "border-blue-500/60 bg-blue-50"
+                                : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name="strategy"
+                              value={strategy.key}
+                              checked={selectedStrategy === strategy.key}
+                              onChange={() => setSelectedStrategy(strategy.key)}
+                              className="mt-1 accent-blue-600"
+                            />
+                            <span className="min-w-0">
+                              <span className="block text-xs font-medium text-slate-950">
+                                {strategy.name}
+                              </span>
+                              <span className="mt-0.5 block truncate text-xs text-slate-500">
+                                {strategy.desc}
+                              </span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <Button icon={Play} onClick={() => run("single")} disabled={running}>
+                  {running && mode === "single" ? "回测中..." : "开始回测"}
+                </Button>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    variant="secondary"
+                    icon={BarChart3}
+                    onClick={() => run("compare")}
+                    disabled={running}
+                  >
+                    策略对比
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    icon={SlidersHorizontal}
+                    onClick={() => run("optimize")}
+                    disabled={running}
+                  >
+                    参数优化
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </aside>
+
+        <main className="min-w-0 space-y-5">
+          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <div className="text-xs text-slate-500">运行模式</div>
+                <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-950">
+                  {mode === "single" ? "单股回测" : mode === "compare" ? "策略对比" : "参数优化"}
+                  <ChevronRight className="h-4 w-4 text-slate-400" strokeWidth={1.8} />
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500">标的</div>
+                <div className="mt-1 font-mono text-sm font-semibold text-slate-950">
+                  {params.code || "-"} {selectedStock?.name || ""}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs text-slate-500">资金 / 周期</div>
+                <div className="mt-1 font-mono text-sm font-semibold text-slate-950">
+                  {formatCurrency(Number(params.capital))} · {params.days} 天
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {running ? (
+            <LoadingState label="正在执行回测计算..." />
+          ) : !result ? (
+            <EmptyState
+              title="请选择模式并开始"
+              description="左侧设置标的、天数、资金和策略后，可执行单股回测、全部策略对比或参数优化。"
+            />
+          ) : result.type === "single" ? (
+            <SingleResult result={result.data} initialCapital={Number(params.capital)} />
+          ) : result.type === "compare" ? (
+            <CompareResult result={result.data} />
+          ) : (
+            <OptimizeResult result={result.data} />
+          )}
+        </main>
+      </div>
     </div>
   );
 }
