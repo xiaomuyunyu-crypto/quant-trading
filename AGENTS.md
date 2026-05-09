@@ -61,7 +61,8 @@ cd c:\Users\晓\Desktop\量化deepseek && uvicorn backend.main:app --reload --po
 # 数据管道
 python -m data.pipeline init           # 初始化数据库
 python -m data.pipeline sync-stocks     # 同步A股列表
-python -m data.pipeline sync-klines     # 同步K线数据
+python -m data.pipeline sync-klines --days 3000 --codes 600309  # 补最近3000天K线
+python -m data.pipeline sync-history --codes 600309             # 从上市以来补K线数据
 
 # 启动前端
 cd frontend && npm run dev

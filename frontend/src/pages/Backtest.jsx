@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import {
   BarChart3,
@@ -23,11 +23,38 @@ import {
 } from "../components/WorkbenchUI";
 import { formatCurrency, formatNumber, formatPercent, toneByValue } from "../lib/format";
 
-const ACTIVE_STRATEGY = {
-  key: "triple_macd_ma250",
-  name: "三周期MACD+250日均线状态机",
-  desc: "月线MACD定方向，250日均线定长期开关，周线开窗口，日线执行买卖。",
-};
+const DEFAULT_STRATEGIES = [
+  {
+    key: "triple_macd_ma250",
+    name: "原策略：月线+MA250+周线+日线",
+    desc: "保留当前规则：月线MACD过滤，MA250长期开关，周线窗口，日线MACD执行",
+    params: { level: 0 },
+  },
+  {
+    key: "triple_macd_no_monthly",
+    name: "松绑1：去掉月线MACD控制",
+    desc: "不再用月线MACD限制买卖，保留MA250、周线窗口和日线MACD执行",
+    params: { level: 1 },
+  },
+  {
+    key: "triple_macd_no_monthly_no_ma250",
+    name: "松绑2：再去掉MA250控制",
+    desc: "去掉月线MACD和MA250过滤，保留周线窗口，日线MACD执行",
+    params: { level: 2 },
+  },
+  {
+    key: "triple_macd_daily_only",
+    name: "松绑3：仅日线MACD执行",
+    desc: "去掉月线、MA250、周线控制，只按日线MACD金叉买入、死叉卖出",
+    params: { level: 3 },
+  },
+  {
+    key: "weekly_macd_cross",
+    name: "周线MACD金叉/死叉",
+    desc: "周线MACD出现金叉买入，出现死叉卖出",
+    params: { level: 4 },
+  },
+];
 
 const initialStock = { code: "000001", name: "平安银行", market_label: "深A" };
 
@@ -54,16 +81,40 @@ export default function Backtest() {
   const [selectedStock, setSelectedStock] = useState(initialStock);
   const [params, setParams] = useState({
     code: initialStock.code,
-    days: 1000,
+    days: 3000,
     fullHistory: false,
     capital: 10000,
   });
+  const [strategies, setStrategies] = useState(DEFAULT_STRATEGIES);
+  const [selectedStrategy, setSelectedStrategy] = useState(DEFAULT_STRATEGIES[0].key);
+  const [strategyError, setStrategyError] = useState("");
   const [mode, setMode] = useState("single");
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
-  const selectedStrategy = ACTIVE_STRATEGY.key;
-  const currentStrategy = ACTIVE_STRATEGY;
+  const currentStrategy = useMemo(
+    () => strategies.find((strategy) => strategy.key === selectedStrategy) || strategies[0],
+    [selectedStrategy, strategies]
+  );
+
+  useEffect(() => {
+    let alive = true;
+    api.get("/backtest/strategies")
+      .then((data) => {
+        const loaded = (data.categories || []).flatMap((category) => category.strategies || []);
+        if (alive && loaded.length > 0) {
+          setStrategies(loaded);
+          setSelectedStrategy((prev) => loaded.some((strategy) => strategy.key === prev) ? prev : loaded[0].key);
+          setStrategyError("");
+        }
+      })
+      .catch((e) => {
+        if (alive) setStrategyError(e.message || "策略列表获取失败，已使用本地默认策略");
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const updateParam = (key, value) => {
     setParams((prev) => ({ ...prev, [key]: value }));
@@ -115,7 +166,7 @@ export default function Backtest() {
         <PageHeader
           variant="light"
           title="策略回测工作台"
-          description="三周期 MACD + 250 日均线交易状态机。候选列表只是快捷入口，仍可搜索任意 A 股或 ETF。"
+          description="保留原 MACD + MA250 状态机，同时提供逐级松绑和周线金叉/死叉策略用于对比。"
           meta={
             currentStrategy && (
               <span className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600">
@@ -206,7 +257,7 @@ export default function Backtest() {
             <div className="mb-4">
               <h2 className="text-sm font-semibold text-slate-950">回测参数</h2>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                MVP 规则：收盘价、满仓进出、忽略手续费。三周期策略至少需要 260 根日线，默认取 1000 天。
+                MVP 规则：收盘价、满仓进出、忽略手续费。默认取 3000 天，支持从上市以来回测。
               </p>
             </div>
 
@@ -250,20 +301,57 @@ export default function Backtest() {
               </label>
 
               <div>
-                <label className="mb-2 block text-xs text-slate-500">固定策略</label>
-                <div className="rounded border border-blue-200 bg-blue-50 px-3 py-3">
-                  <div className="text-sm font-semibold text-slate-950">
-                    {ACTIVE_STRATEGY.name}
-                  </div>
-                  <p className="mt-1 text-xs leading-5 text-slate-600">
-                    {ACTIVE_STRATEGY.desc}
-                  </p>
-                  <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-600">
-                    <span className="rounded border border-blue-100 bg-white px-2 py-1">月线 MACD</span>
-                    <span className="rounded border border-blue-100 bg-white px-2 py-1">250 日均线</span>
-                    <span className="rounded border border-blue-100 bg-white px-2 py-1">周线窗口</span>
-                    <span className="rounded border border-blue-100 bg-white px-2 py-1">日线执行</span>
-                  </div>
+                <label className="mb-2 block text-xs text-slate-500">策略选择</label>
+                {strategyError && (
+                  <Notice tone="warn" variant="light" className="mb-3">
+                    {strategyError}
+                  </Notice>
+                )}
+                <div className="space-y-2">
+                  {strategies.map((strategy, index) => {
+                    const active = selectedStrategy === strategy.key;
+                    return (
+                      <button
+                        key={strategy.key}
+                        type="button"
+                        onClick={() => {
+                          setSelectedStrategy(strategy.key);
+                          setResult(null);
+                        }}
+                        className={`w-full rounded border px-3 py-3 text-left transition-colors ${
+                          active
+                            ? "border-blue-500 bg-blue-50"
+                            : "border-slate-200 bg-white hover:border-orange-300 hover:bg-orange-50"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-slate-950">
+                              {index + 1}. {strategy.name}
+                            </div>
+                            <p className="mt-1 text-xs leading-5 text-slate-600">
+                              {strategy.desc}
+                            </p>
+                          </div>
+                          <span className={`shrink-0 rounded px-2 py-1 text-[11px] ${
+                            active ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500"
+                          }`}>
+                            {active ? "已选" : "选择"}
+                          </span>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {strategyPills(strategy.key).map((pill) => (
+                            <span
+                              key={pill}
+                              className="rounded border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600"
+                            >
+                              {pill}
+                            </span>
+                          ))}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -307,7 +395,7 @@ export default function Backtest() {
             <EmptyState
               variant="light"
               title="请选择标的并开始"
-              description="左侧输入股票名称或代码选择标的，设置周期和资金后，用固定的 MACD + 250 日均线策略执行回测。"
+              description="左侧输入股票名称或代码选择标的，设置策略、周期和资金后执行回测。"
             />
           ) : (
             <SingleResult result={result.data} initialCapital={Number(params.capital)} />
@@ -322,7 +410,7 @@ function SingleResult({ result, initialCapital }) {
   const chartOption = buildEquityOption(result.equity_curve || [], initialCapital);
   const noTradeReason =
     result.diagnostics?.strategy?.primary_reason ||
-    "这套状态机在当前区间没有同时满足月线、MA250、周线窗口和日线执行条件。";
+    "当前策略在这个区间没有触发完整买卖信号。";
   return (
     <div className="space-y-5">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -413,6 +501,17 @@ function SingleResult({ result, initialCapital }) {
       </Panel>
     </div>
   );
+}
+
+function strategyPills(key) {
+  const map = {
+    triple_macd_ma250: ["月线MACD", "MA250", "周线窗口", "日线MACD"],
+    triple_macd_no_monthly: ["MA250", "周线窗口", "日线MACD"],
+    triple_macd_no_monthly_no_ma250: ["周线窗口", "日线MACD"],
+    triple_macd_daily_only: ["日线MACD"],
+    weekly_macd_cross: ["周线MACD"],
+  };
+  return map[key] || ["MACD"];
 }
 
 function DataDiagnostics({ result }) {

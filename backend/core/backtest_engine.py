@@ -14,6 +14,29 @@ from backend.core.signal_engine import (
     detect_golden_cross, detect_death_cross, detect_all_crosses,
 )
 
+TRIPLE_MACD_STRATEGIES: dict[str, dict] = {
+    "triple_macd_ma250": {
+        "use_monthly_filter": True,
+        "use_ma250_filter": True,
+        "use_weekly_filter": True,
+    },
+    "triple_macd_no_monthly": {
+        "use_monthly_filter": False,
+        "use_ma250_filter": True,
+        "use_weekly_filter": True,
+    },
+    "triple_macd_no_monthly_no_ma250": {
+        "use_monthly_filter": False,
+        "use_ma250_filter": False,
+        "use_weekly_filter": True,
+    },
+    "triple_macd_daily_only": {
+        "use_monthly_filter": False,
+        "use_ma250_filter": False,
+        "use_weekly_filter": False,
+    },
+}
+
 
 @dataclass
 class TradeRecord:
@@ -54,7 +77,8 @@ def run_backtest(
     df: 日线OHLCV数据, 列含 open/high/low/close/volume/date
     strategy:
         "macd_daily"      日线MACD绿柱连续缩短3天买、红柱连续缩短3天卖
-        "macd_weekly"     周线MACD金叉买、死叉卖
+        "weekly_macd_cross" 周线MACD金叉买、死叉卖
+        "triple_macd_*"   三周期MACD状态机及逐级松绑变体
         "rsi_oversold"    RSI连续3日<20或连续2日<16买；RSI>92或连续2日>85卖
         "ma_cross"        MA5上穿MA20买、下穿MA20卖
 
@@ -164,8 +188,8 @@ def _generate_strategy_signals(df: pd.DataFrame, strategy: str) -> list[str]:
     if strategy.startswith("composite_"):
         return _generate_composite_signals(df, strategy)
 
-    if strategy == "triple_macd_ma250":
-        return _generate_triple_macd_signals(df)
+    if strategy in TRIPLE_MACD_STRATEGIES:
+        return _generate_triple_macd_signals(df, strategy)
 
     if strategy == "macd_hist":
         # MACD柱趋势策略：红柱连续2天缩短→卖出，绿柱从最低点回升3次→买入
@@ -226,22 +250,8 @@ def _generate_strategy_signals(df: pd.DataFrame, strategy: str) -> list[str]:
                 signals.append("HOLD")
         return signals
 
-    elif strategy == "macd_weekly":
-        # 用日线重采样到周线 OHLC
-        df_w = _resample_to_weekly(df)
-        close_w = df_w["close"].values.astype(np.float64)
-        dif, dea, _ = calc_macd(close_w)
-        crosses_w = detect_all_crosses(dif, dea)
-        # 将周线交叉映射回日线（交叉发生在该周最后一个交易日）
-        signals = ["HOLD"] * n
-        for w in range(len(crosses_w)):
-            if crosses_w[w] != 0:
-                day_idx = min((w + 1) * 5 - 1, n - 1)
-                if crosses_w[w] == 1:
-                    signals[day_idx] = "BUY"
-                else:
-                    signals[day_idx] = "SELL"
-        return signals
+    elif strategy in ("weekly_macd_cross", "macd_weekly"):
+        return _generate_weekly_macd_cross_signals(df)
 
     elif strategy == "rsi_oversold":
         rsi = calc_rsi(close, 14)
@@ -380,6 +390,16 @@ def _rsi_recent_condition(
 
 
 def _trade_reason(strategy: str, action: str) -> str:
+    if strategy in TRIPLE_MACD_STRATEGIES:
+        if action == "BUY":
+            return "日线MACD金叉，满足当前策略过滤条件"
+        if action == "SELL":
+            return "日线MACD死叉或上层过滤条件转弱"
+    if strategy in ("weekly_macd_cross", "macd_weekly"):
+        if action == "BUY":
+            return "周线MACD金叉"
+        if action == "SELL":
+            return "周线MACD死叉"
     if strategy == "macd_daily":
         if action == "BUY":
             return "MACD绿柱连续缩短3天"
@@ -461,8 +481,8 @@ def run_backtest_with_signals(df: pd.DataFrame, code: str, signals: list[str],
     )
 
 
-def _generate_triple_macd_signals(df: pd.DataFrame) -> list[str]:
-    """三周期MACD+MA250状态机"""
+def _generate_triple_macd_signals(df: pd.DataFrame, strategy: str) -> list[str]:
+    """三周期MACD状态机及逐级松绑变体。"""
     import sys
     from pathlib import Path
     project_root = Path(__file__).resolve().parent.parent.parent
@@ -473,17 +493,45 @@ def _generate_triple_macd_signals(df: pd.DataFrame) -> list[str]:
         TripleMACDStateMachine, prepare_dataframes,
     )
 
-    min_bars = 260
+    options = TRIPLE_MACD_STRATEGIES.get(strategy, TRIPLE_MACD_STRATEGIES["triple_macd_ma250"])
+    min_bars = _min_required_bars(strategy)
     if len(df) < min_bars:
         return ["HOLD"] * len(df)
 
     try:
         daily, weekly, monthly = prepare_dataframes(df)
-        sm = TripleMACDStateMachine(daily, weekly, monthly)
+        sm = TripleMACDStateMachine(daily, weekly, monthly, **options)
         signals, _ = sm.run()
         return signals
     except Exception:
         return ["HOLD"] * len(df)
+
+
+def _generate_weekly_macd_cross_signals(df: pd.DataFrame) -> list[str]:
+    """周线MACD金叉买入、死叉卖出，并映射到对应周最后一个日线交易日。"""
+    n = len(df)
+    signals = ["HOLD"] * n
+    if n == 0:
+        return signals
+
+    df_w = _resample_to_weekly(df)
+    if df_w.empty:
+        return signals
+
+    close_w = df_w["close"].values.astype(np.float64)
+    dif, dea, _ = calc_macd(close_w)
+    crosses_w = detect_all_crosses(dif, dea)
+    daily_dates = pd.to_datetime(df["date"]).reset_index(drop=True)
+    weekly_dates = pd.to_datetime(df_w["date"]).reset_index(drop=True)
+
+    for w_idx, cross in enumerate(crosses_w):
+        if cross == 0:
+            continue
+        day_idx = daily_dates.searchsorted(weekly_dates.iloc[w_idx], side="right") - 1
+        if day_idx < 0:
+            continue
+        signals[min(int(day_idx), n - 1)] = "BUY" if cross == 1 else "SELL"
+    return signals
 
 
 def generate_strategy_diagnostics(df: pd.DataFrame, strategy: str) -> dict:
@@ -514,8 +562,8 @@ def generate_strategy_diagnostics(df: pd.DataFrame, strategy: str) -> dict:
         return diagnostics
 
     try:
-        if strategy == "triple_macd_ma250":
-            detail = _diagnose_triple_macd(data)
+        if strategy in TRIPLE_MACD_STRATEGIES:
+            detail = _diagnose_triple_macd(data, strategy)
         else:
             signals = _generate_strategy_signals(data, strategy)
             detail = {"signals": signals, "history": []}
@@ -553,7 +601,7 @@ def generate_strategy_diagnostics(df: pd.DataFrame, strategy: str) -> dict:
         return diagnostics
 
 
-def _diagnose_triple_macd(df: pd.DataFrame) -> dict:
+def _diagnose_triple_macd(df: pd.DataFrame, strategy: str) -> dict:
     """三周期状态机诊断，复用正式状态机实现。"""
     import sys
     from pathlib import Path
@@ -566,14 +614,22 @@ def _diagnose_triple_macd(df: pd.DataFrame) -> dict:
     )
 
     daily, weekly, monthly = prepare_dataframes(df)
-    sm = TripleMACDStateMachine(daily, weekly, monthly)
+    options = TRIPLE_MACD_STRATEGIES.get(strategy, TRIPLE_MACD_STRATEGIES["triple_macd_ma250"])
+    sm = TripleMACDStateMachine(daily, weekly, monthly, **options)
     signals, history = sm.run()
     return {"signals": signals, "history": history}
 
 
 def _min_required_bars(strategy: str) -> int:
-    if strategy == "triple_macd_ma250":
-        return 260
+    if strategy in TRIPLE_MACD_STRATEGIES:
+        options = TRIPLE_MACD_STRATEGIES[strategy]
+        if options.get("use_ma250_filter"):
+            return 260
+        if options.get("use_weekly_filter"):
+            return 140
+        return 60
+    if strategy in ("weekly_macd_cross", "macd_weekly"):
+        return 140
     if strategy.startswith("composite_"):
         return 60
     return 30

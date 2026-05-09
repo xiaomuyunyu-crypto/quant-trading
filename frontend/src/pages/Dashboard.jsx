@@ -381,7 +381,7 @@ export default function Dashboard() {
 
         <Panel
           title="策略研究入口"
-          description="当前前端只保留三周期 MACD + 250 日均线状态机，先把这套规则跑顺、看懂、复盘清楚。"
+          description="当前回测页保留原 MACD + MA250 策略，并提供逐级松绑和周线金叉/死叉策略做对比。"
           actions={
             <Button icon={BarChart3} onClick={() => navigate("/backtest")}>
               打开回测
@@ -396,9 +396,9 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="rounded border border-slate-800 bg-slate-950/50 p-4">
-              <div className="text-sm font-medium text-slate-200">MACD + 250 日均线</div>
+              <div className="text-sm font-medium text-slate-200">5 个 MACD 策略</div>
               <p className="mt-2 text-xs leading-5 text-slate-500">
-                月线定方向，250 日均线定开关，周线开窗口，日线做执行。
+                原策略、3 个逐级松绑策略，以及周线金叉/死叉策略。
               </p>
             </div>
             <div className="rounded border border-slate-800 bg-slate-950/50 p-4">

@@ -73,9 +73,17 @@ def prepare_dataframes(df_daily: pd.DataFrame):
 
 
 class TripleMACDStateMachine:
-    """三周期MACD+MA250交易状态机"""
+    """三周期MACD+MA250交易状态机，可按策略配置逐级关闭过滤器。"""
 
-    def __init__(self, daily: pd.DataFrame, weekly: pd.DataFrame, monthly: pd.DataFrame):
+    def __init__(
+        self,
+        daily: pd.DataFrame,
+        weekly: pd.DataFrame,
+        monthly: pd.DataFrame,
+        use_monthly_filter: bool = True,
+        use_ma250_filter: bool = True,
+        use_weekly_filter: bool = True,
+    ):
         self.daily = daily.reset_index(drop=True)
         self.weekly = weekly.reset_index(drop=True)
         self.monthly = monthly.reset_index(drop=True)
@@ -83,6 +91,9 @@ class TripleMACDStateMachine:
         self.in_position = False
         self._weekly_window_open = False
         self._n = len(self.daily)
+        self.use_monthly_filter = use_monthly_filter
+        self.use_ma250_filter = use_ma250_filter
+        self.use_weekly_filter = use_weekly_filter
 
     def run(self) -> tuple[list[str], list[dict]]:
         """逐日运行，返回 (信号列表, 状态历史)"""
@@ -111,66 +122,73 @@ class TripleMACDStateMachine:
 
     def _step(self, d, w, m) -> StateSnapshot:
         # ── L1: 月线 ──
-        m_status = "多头" if self._macd_bullish(m) else "空头"
-        m_cross = int(m.get("MACD_cross", 0) or 0)
+        if self.use_monthly_filter:
+            m_status = "多头" if self._macd_bullish(m) else "空头"
+            m_cross = int(m.get("MACD_cross", 0) or 0)
 
-        if m_cross == -1 or m_status == "空头":
-            if self.in_position:
-                self.in_position = False
+            if m_cross == -1 or m_status == "空头":
+                if self.in_position:
+                    self.in_position = False
+                    self.state = MachineState.MONTHLY_DEAD_CROSS
+                    return StateSnapshot(self.state, TradeAction.SELL_FULL,
+                        reason="月线MACD死叉/空头，强制平仓",
+                        monthly_macd_status="死叉" if m_cross == -1 else "空头",
+                        above_ma250=self._above_ma250(d))
                 self.state = MachineState.MONTHLY_DEAD_CROSS
-                return StateSnapshot(self.state, TradeAction.SELL_FULL,
-                    reason="月线MACD死叉/空头，强制平仓",
+                return StateSnapshot(self.state, TradeAction.HOLD,
+                    reason="月线MACD空头，禁止一切买入",
                     monthly_macd_status="死叉" if m_cross == -1 else "空头",
                     above_ma250=self._above_ma250(d))
-            self.state = MachineState.MONTHLY_DEAD_CROSS
-            return StateSnapshot(self.state, TradeAction.HOLD,
-                reason="月线MACD空头，禁止一切买入",
-                monthly_macd_status="死叉" if m_cross == -1 else "空头",
-                above_ma250=self._above_ma250(d))
 
-        m_label = "金叉" if m_status == "多头" else "维持金叉"
+            m_label = "金叉" if m_status == "多头" else "维持金叉"
+        else:
+            m_label = "月线未启用"
 
         # ── L2: MA250 ──
-        above = self._above_ma250(d)
-        ma_cross = int(d.get("MA250_cross", 0) or 0)
-
-        if not above:
-            if self.in_position:
-                self.in_position = False
+        above = True
+        if self.use_ma250_filter:
+            above = self._above_ma250(d)
+            if not above:
+                if self.in_position:
+                    self.in_position = False
+                    self.state = MachineState.WAITING_ABOVE_MA250
+                    return StateSnapshot(self.state, TradeAction.SELL_FULL,
+                        reason="价格跌破MA250，平仓等待",
+                        monthly_macd_status=m_label, above_ma250=False)
                 self.state = MachineState.WAITING_ABOVE_MA250
-                return StateSnapshot(self.state, TradeAction.SELL_FULL,
-                    reason="价格跌破MA250，平仓等待",
+                return StateSnapshot(self.state, TradeAction.HOLD,
+                    reason="价格在MA250下方，等待重新上穿",
                     monthly_macd_status=m_label, above_ma250=False)
-            self.state = MachineState.WAITING_ABOVE_MA250
-            return StateSnapshot(self.state, TradeAction.HOLD,
-                reason="价格在MA250下方，等待重新上穿",
-                monthly_macd_status=m_label, above_ma250=False)
 
         # ── L3: 周线窗口 ──
-        self._weekly_window_open = self._eval_weekly(w)
-        if not self._weekly_window_open:
-            self.state = MachineState.EMPTY_WAITING
-            return StateSnapshot(self.state, TradeAction.HOLD,
-                reason="等待周线交易窗口开启",
-                monthly_macd_status=m_label, above_ma250=True,
-                weekly_window_open=False, in_position=self.in_position)
+        if self.use_weekly_filter:
+            self._weekly_window_open = self._eval_weekly(w)
+            if not self._weekly_window_open:
+                self.state = MachineState.EMPTY_WAITING
+                return StateSnapshot(self.state, TradeAction.HOLD,
+                    reason="等待周线交易窗口开启",
+                    monthly_macd_status=m_label, above_ma250=above,
+                    weekly_window_open=False, in_position=self.in_position)
+        else:
+            self._weekly_window_open = True
 
         # ── L4: 日线执行 ──
         d_status = "多头" if self._macd_bullish(d) else "空头"
         d_cross = int(d.get("MACD_cross", 0) or 0)
+        buy_context = self._buy_context(m_label)
 
         if not self.in_position:
             if d_cross == 1:
                 self.in_position = True
                 self.state = MachineState.FULL_POSITION
                 return StateSnapshot(self.state, TradeAction.BUY_FULL,
-                    reason=f"日线MACD金叉（{m_label}+MA250上方+周线窗口开启），全仓买入",
-                    monthly_macd_status=m_label, above_ma250=True,
+                    reason=f"日线MACD金叉（{buy_context}），全仓买入",
+                    monthly_macd_status=m_label, above_ma250=above,
                     weekly_window_open=True, daily_macd_status="金叉", in_position=True)
             self.state = MachineState.DAILY_OPEN
             return StateSnapshot(self.state, TradeAction.HOLD,
                 reason="日线交易窗口开启，等待MACD金叉买入",
-                monthly_macd_status=m_label, above_ma250=True,
+                monthly_macd_status=m_label, above_ma250=above,
                 weekly_window_open=True, daily_macd_status=d_status)
         else:
             if d_cross == -1:
@@ -178,12 +196,12 @@ class TripleMACDStateMachine:
                 self.state = MachineState.DAILY_SELL_WAITING
                 return StateSnapshot(self.state, TradeAction.SELL_FULL,
                     reason="日线MACD死叉，卖出",
-                    monthly_macd_status=m_label, above_ma250=True,
+                    monthly_macd_status=m_label, above_ma250=above,
                     weekly_window_open=True, daily_macd_status="死叉", in_position=False)
             self.state = MachineState.FULL_POSITION
             return StateSnapshot(self.state, TradeAction.HOLD,
                 reason="持仓中，等待卖出信号",
-                monthly_macd_status=m_label, above_ma250=True,
+                monthly_macd_status=m_label, above_ma250=above,
                 weekly_window_open=True, daily_macd_status=d_status, in_position=True)
 
     # ── 辅助 ──
@@ -226,3 +244,13 @@ class TripleMACDStateMachine:
         if grow >= 2:
             return True
         return self._weekly_window_open
+
+    def _buy_context(self, monthly_label: str) -> str:
+        parts = []
+        if self.use_monthly_filter:
+            parts.append(monthly_label)
+        if self.use_ma250_filter:
+            parts.append("MA250上方")
+        if self.use_weekly_filter:
+            parts.append("周线窗口开启")
+        return "+".join(parts) if parts else "无上层过滤"
