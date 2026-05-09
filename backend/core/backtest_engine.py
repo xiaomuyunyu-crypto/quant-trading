@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 from dataclasses import dataclass, field
 from datetime import date as DateType
+from collections import Counter
 
 from backend.core.signal_engine import (
     generate_signal, calc_macd, calc_rsi, calc_ma,
@@ -120,6 +121,7 @@ def run_backtest(
     # 最后如仍持仓，按最后一天收盘价清仓
     if shares > 0:
         last_price = float(close[-1])
+        sold = shares
         amount = shares * last_price
         cash += amount
         equity = cash
@@ -129,7 +131,7 @@ def run_backtest(
         max_dd = max(max_dd, dd)
         trades.append(TradeRecord(
             date=str(df["date"].iloc[-1]), code=code, action="SELL(回测结束清仓)",
-            price=last_price, shares=shares, amount=amount,
+            price=last_price, shares=sold, amount=amount,
             reason="回测结束强制清仓",
             equity_after=round(equity, 2),
         ))
@@ -482,6 +484,99 @@ def _generate_triple_macd_signals(df: pd.DataFrame) -> list[str]:
         return signals
     except Exception:
         return ["HOLD"] * len(df)
+
+
+def generate_strategy_diagnostics(df: pd.DataFrame, strategy: str) -> dict:
+    """生成策略诊断信息；只解释信号，不改变交易逻辑。"""
+    if df is None or df.empty:
+        return {
+            "strategy": strategy,
+            "data_points": 0,
+            "min_required_bars": _min_required_bars(strategy),
+            "enough_data": False,
+            "primary_reason": "没有可用于回测的K线数据",
+            "signal_counts": {"BUY": 0, "SELL": 0, "HOLD": 0},
+        }
+
+    data = df.sort_values("date").reset_index(drop=True)
+    min_bars = _min_required_bars(strategy)
+    diagnostics = {
+        "strategy": strategy,
+        "data_points": len(data),
+        "min_required_bars": min_bars,
+        "enough_data": len(data) >= min_bars,
+        "signal_counts": {"BUY": 0, "SELL": 0, "HOLD": len(data)},
+        "primary_reason": "",
+    }
+
+    if len(data) < min_bars:
+        diagnostics["primary_reason"] = f"数据不足：当前{len(data)}根K线，策略至少需要{min_bars}根"
+        return diagnostics
+
+    try:
+        if strategy == "triple_macd_ma250":
+            detail = _diagnose_triple_macd(data)
+        else:
+            signals = _generate_strategy_signals(data, strategy)
+            detail = {"signals": signals, "history": []}
+
+        signals = detail.get("signals", [])
+        counts = Counter(signals)
+        diagnostics["signal_counts"] = {
+            "BUY": int(counts.get("BUY", 0)),
+            "SELL": int(counts.get("SELL", 0)),
+            "HOLD": int(counts.get("HOLD", 0)),
+        }
+
+        history = detail.get("history") or []
+        if history:
+            latest = history[-1]
+            diagnostics["latest_state"] = latest
+            diagnostics["state_counts"] = dict(Counter(row.get("state", "") for row in history if row.get("state")))
+            reason_counts = Counter(row.get("reason", "") for row in history if row.get("reason"))
+            diagnostics["top_block_reasons"] = [
+                {"reason": reason, "count": int(count)}
+                for reason, count in reason_counts.most_common(5)
+            ]
+            diagnostics["primary_reason"] = latest.get("reason") or "策略条件未触发"
+
+        if not diagnostics["primary_reason"]:
+            if diagnostics["signal_counts"]["BUY"] == 0 and diagnostics["signal_counts"]["SELL"] == 0:
+                diagnostics["primary_reason"] = "策略条件未触发买卖信号"
+            else:
+                diagnostics["primary_reason"] = "策略已生成信号，交易结果取决于持仓状态和全仓进出规则"
+
+        return diagnostics
+    except Exception as exc:
+        diagnostics["primary_reason"] = "策略诊断执行失败，回测结果仍按主流程返回"
+        diagnostics["errors"] = [str(exc)]
+        return diagnostics
+
+
+def _diagnose_triple_macd(df: pd.DataFrame) -> dict:
+    """三周期状态机诊断，复用正式状态机实现。"""
+    import sys
+    from pathlib import Path
+    project_root = Path(__file__).resolve().parent.parent.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
+    from strategy.components.state_machine import (
+        TripleMACDStateMachine, prepare_dataframes,
+    )
+
+    daily, weekly, monthly = prepare_dataframes(df)
+    sm = TripleMACDStateMachine(daily, weekly, monthly)
+    signals, history = sm.run()
+    return {"signals": signals, "history": history}
+
+
+def _min_required_bars(strategy: str) -> int:
+    if strategy == "triple_macd_ma250":
+        return 260
+    if strategy.startswith("composite_"):
+        return 60
+    return 30
 
 
 def _generate_composite_signals(df: pd.DataFrame, strategy: str) -> list[str]:

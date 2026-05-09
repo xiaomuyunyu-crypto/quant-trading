@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 # 策略回测 API 路由
 
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, HTTPException, Query
 import pandas as pd
 
@@ -8,10 +10,14 @@ from backend.models.backtest import (
     BacktestRequest, BacktestResultModel, TradeItem, EquityPoint,
     StrategyInfo,
 )
-from backend.core.backtest_engine import run_backtest
-from backend.core.kline_utils import get_klines_df
+from backend.core.backtest_engine import run_backtest, generate_strategy_diagnostics
+from backend.core.kline_utils import get_klines_df, get_klines_with_meta
 
 router = APIRouter(prefix="/backtest", tags=["策略回测"])
+
+DEFAULT_BACKTEST_DAYS = 3000
+MAX_BACKTEST_DAYS = 15000
+FULL_HISTORY_START = "19900101"
 
 
 # ─── 预存策略定义 ───
@@ -26,21 +32,30 @@ PRESET_STRATEGIES: list[dict] = [
 @router.post("", response_model=BacktestResultModel)
 def execute_backtest(req: BacktestRequest):
     """执行单股回测"""
-    # 处理日期：优先用 start_date/end_date，否则根据 days 回溯
-    start_date = req.start_date
-    end_date = req.end_date
-    if req.days and not start_date:
-        from datetime import datetime, timedelta
-        end_dt = datetime.now()
-        start_dt = end_dt - timedelta(days=req.days)
-        end_date = end_dt.strftime("%Y%m%d")
-        start_date = start_dt.strftime("%Y%m%d")
+    # 处理日期：优先显式日期，其次上市以来，最后默认回溯3000天。
+    start_date, end_date = _resolve_backtest_range(
+        start_date=req.start_date,
+        end_date=req.end_date,
+        days=req.days,
+        full_history=req.full_history,
+    )
 
-    df = get_klines_df(req.code, start_date=start_date, end_date=end_date)
+    kline_result = get_klines_with_meta(req.code, start_date=start_date, end_date=end_date)
+    df = kline_result.df
     if df is None or df.empty:
         raise HTTPException(status_code=404, detail=f"股票 {req.code} 在指定区间无K线数据")
 
     result = run_backtest(df, req.code, strategy=req.strategy, initial_capital=req.initial_capital)
+    strategy_diagnostics = generate_strategy_diagnostics(df, req.strategy)
+    diagnostics = {
+        "kline": kline_result.to_dict(),
+        "strategy": strategy_diagnostics,
+        "requested_days": req.days,
+        "full_history": req.full_history,
+    }
+    warnings = list(kline_result.warnings)
+    if result.total_trades == 0:
+        warnings.append(strategy_diagnostics.get("primary_reason") or "该区间没有触发买卖信号")
 
     # 权益曲线加入信号标记（前端直接用来标注买卖点）
     trade_dates = {t.date[:10]: t.action for t in result.trades}
@@ -56,6 +71,12 @@ def execute_backtest(req: BacktestRequest):
         code=result.code,
         start_date=result.start_date,
         end_date=result.end_date,
+        requested_start_date=start_date,
+        requested_end_date=end_date,
+        data_source=kline_result.data_source,
+        data_points=len(df),
+        actual_data_start_date=kline_result.actual_start_date,
+        actual_data_end_date=kline_result.actual_end_date,
         initial_capital=result.initial_capital,
         final_equity=result.final_equity,
         total_return=result.total_return,
@@ -68,21 +89,19 @@ def execute_backtest(req: BacktestRequest):
             price=t.price, shares=t.shares, amount=t.amount,
             reason=t.reason,
         ) for t in result.trades],
+        diagnostics=diagnostics,
+        warnings=warnings,
     )
 
 
 @router.get("/compare")
 def compare_strategies(
     code: str = Query(..., description="股票代码"),
-    days: int = Query(default=365, ge=30, description="回测天数"),
+    days: int = Query(default=DEFAULT_BACKTEST_DAYS, ge=30, le=MAX_BACKTEST_DAYS, description="回测天数"),
     initial_capital: float = Query(default=10000.0),
 ):
     """一支股票同时跑全部策略 → 排名对比"""
-    from datetime import datetime, timedelta
-    end_dt = datetime.now()
-    start_dt = end_dt - timedelta(days=days)
-    start_date = start_dt.strftime("%Y%m%d")
-    end_date = end_dt.strftime("%Y%m%d")
+    start_date, end_date = _resolve_backtest_range(days=days)
 
     df = get_klines_df(code, start_date=start_date, end_date=end_date)
     if df is None or df.empty:
@@ -133,15 +152,11 @@ def compare_strategies(
 def optimize_parameters(
     code: str = Query(..., description="股票代码"),
     strategy: str = Query(default="ma_cross", description="优化策略key"),
-    days: int = Query(default=365, ge=30),
+    days: int = Query(default=DEFAULT_BACKTEST_DAYS, ge=30, le=MAX_BACKTEST_DAYS),
     initial_capital: float = Query(default=10000.0),
 ):
     """网格搜索最优参数"""
-    from datetime import datetime, timedelta
-    end_dt = datetime.now()
-    start_dt = end_dt - timedelta(days=days)
-    start_date = start_dt.strftime("%Y%m%d")
-    end_date = end_dt.strftime("%Y%m%d")
+    start_date, end_date = _resolve_backtest_range(days=days)
 
     df = get_klines_df(code, start_date=start_date, end_date=end_date)
     if df is None or df.empty:
@@ -228,3 +243,28 @@ def _strategy_display_name(key: str) -> str:
         if strategy["key"] == key:
             return strategy["name"]
     return key
+
+
+def _resolve_backtest_range(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    days: int | None = None,
+    full_history: bool = False,
+) -> tuple[str, str]:
+    """统一回测日期解析：支持默认3000天与从上市以来回测。"""
+    resolved_end = _to_compact_date(end_date) or datetime.now().strftime("%Y%m%d")
+    if full_history:
+        return FULL_HISTORY_START, resolved_end
+    if start_date:
+        return _to_compact_date(start_date), resolved_end
+
+    end_dt = pd.to_datetime(resolved_end).to_pydatetime()
+    lookback_days = days or DEFAULT_BACKTEST_DAYS
+    start_dt = end_dt - timedelta(days=lookback_days)
+    return start_dt.strftime("%Y%m%d"), resolved_end
+
+
+def _to_compact_date(value: str | None) -> str | None:
+    if not value:
+        return None
+    return pd.to_datetime(value).strftime("%Y%m%d")

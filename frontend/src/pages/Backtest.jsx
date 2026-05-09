@@ -52,7 +52,12 @@ const ROLLING_STOCKS = [
 export default function Backtest() {
   const [stockInput, setStockInput] = useState(formatStockLabel(initialStock));
   const [selectedStock, setSelectedStock] = useState(initialStock);
-  const [params, setParams] = useState({ code: initialStock.code, days: 1000, capital: 10000 });
+  const [params, setParams] = useState({
+    code: initialStock.code,
+    days: 1000,
+    fullHistory: false,
+    capital: 10000,
+  });
   const [mode, setMode] = useState("single");
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
@@ -92,7 +97,8 @@ export default function Backtest() {
       const data = await api.post("/backtest", {
         code: params.code.trim(),
         strategy: selectedStrategy,
-        days: Number(params.days),
+        days: params.fullHistory ? undefined : Number(params.days),
+        full_history: Boolean(params.fullHistory),
         initial_capital: Number(params.capital),
       });
       setResult({ type: "single", data });
@@ -107,8 +113,9 @@ export default function Backtest() {
     <div className="backtest-light min-h-full bg-white text-slate-950">
       <div className="border-b border-slate-200 bg-white px-5 py-4">
         <PageHeader
+          variant="light"
           title="策略回测工作台"
-          description="只保留你的三周期 MACD + 250 日均线交易状态机。先滚动选股，再用固定规则做单标的回测。"
+          description="三周期 MACD + 250 日均线交易状态机。候选列表只是快捷入口，仍可搜索任意 A 股或 ETF。"
           meta={
             currentStrategy && (
               <span className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600">
@@ -128,7 +135,7 @@ export default function Backtest() {
                 <h2 className="text-sm font-semibold text-slate-950">滚动选股</h2>
               </div>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                输入几个汉字，或 1-2 位数字代码，下方会出现可选择的“代码 + 股票名称”。
+                输入代码或名称，候选列表会从后端股票 API 获取；下方只是界面演示候选。
               </p>
             </div>
 
@@ -203,7 +210,7 @@ export default function Backtest() {
               </p>
             </div>
 
-            {error && <Notice tone="error" className="mb-4">{error}</Notice>}
+            {error && <Notice tone="error" variant="light" className="mb-4">{error}</Notice>}
 
             <div className="space-y-5">
               <div className="grid grid-cols-2 gap-3">
@@ -212,10 +219,11 @@ export default function Backtest() {
                   <input
                     type="number"
                     min={30}
-                    max={3650}
+                    max={15000}
                     value={params.days}
+                    disabled={params.fullHistory}
                     onChange={(e) => updateParam("days", e.target.value)}
-                    className="h-10 w-full rounded border border-slate-300 bg-white px-3 font-mono text-sm text-slate-950 outline-none transition-colors focus:border-orange-500 focus:ring-2 focus:ring-orange-500/10"
+                    className="h-10 w-full rounded border border-slate-300 bg-white px-3 font-mono text-sm text-slate-950 outline-none transition-colors disabled:bg-slate-100 disabled:text-slate-400 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/10"
                   />
                 </label>
                 <label className="block">
@@ -230,6 +238,16 @@ export default function Backtest() {
                   />
                 </label>
               </div>
+
+              <label className="flex items-center gap-3 rounded border border-slate-200 bg-slate-50 px-3 py-2.5">
+                <input
+                  type="checkbox"
+                  checked={params.fullHistory}
+                  onChange={(e) => updateParam("fullHistory", e.target.checked)}
+                  className="h-4 w-4 accent-orange-500"
+                />
+                <span className="text-sm font-medium text-slate-700">从上市以来回测</span>
+              </label>
 
               <div>
                 <label className="mb-2 block text-xs text-slate-500">固定策略</label>
@@ -277,18 +295,19 @@ export default function Backtest() {
               <div>
                 <div className="text-xs text-slate-500">资金 / 周期</div>
                 <div className="mt-1 font-mono text-sm font-semibold text-slate-950">
-                  {formatCurrency(Number(params.capital))} · {params.days} 天
+                  {formatCurrency(Number(params.capital))} · {params.fullHistory ? "上市以来" : `${params.days} 天`}
                 </div>
               </div>
             </div>
           </section>
 
           {running ? (
-            <LoadingState label="正在执行回测计算..." />
+            <LoadingState label="正在执行回测计算..." variant="light" />
           ) : !result ? (
             <EmptyState
+              variant="light"
               title="请选择标的并开始"
-              description="左侧输入股票名称或代码选择标的，设置天数和资金后，用固定的 MACD + 250 日均线策略执行回测。"
+              description="左侧输入股票名称或代码选择标的，设置周期和资金后，用固定的 MACD + 250 日均线策略执行回测。"
             />
           ) : (
             <SingleResult result={result.data} initialCapital={Number(params.capital)} />
@@ -301,28 +320,35 @@ export default function Backtest() {
 
 function SingleResult({ result, initialCapital }) {
   const chartOption = buildEquityOption(result.equity_curve || [], initialCapital);
+  const noTradeReason =
+    result.diagnostics?.strategy?.primary_reason ||
+    "这套状态机在当前区间没有同时满足月线、MA250、周线窗口和日线执行条件。";
   return (
     <div className="space-y-5">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
+          variant="light"
           label="累计收益率"
           value={formatPercent(result.total_return)}
           tone={toneByValue(result.total_return)}
           icon={TrendingIcon}
         />
         <MetricCard
+          variant="light"
           label="最大回撤"
           value={formatPercent(result.max_drawdown)}
           tone="down"
           icon={LineChart}
         />
         <MetricCard
+          variant="light"
           label="交易次数"
           value={formatNumber(result.total_trades)}
           unit="笔"
           icon={FlaskConical}
         />
         <MetricCard
+          variant="light"
           label="最终权益"
           value={formatCurrency(result.final_equity)}
           tone={toneByValue(result.final_equity - result.initial_capital)}
@@ -331,19 +357,26 @@ function SingleResult({ result, initialCapital }) {
       </div>
 
       <Panel
+        variant="light"
         title={`${result.code} · ${result.strategy_name}`}
         description={`${result.start_date} ~ ${result.end_date}`}
       >
         <ReactECharts option={chartOption} style={{ height: 380 }} notMerge />
       </Panel>
 
-      <Panel title={`交易明细 · 共 ${(result.trades || []).length} 笔`}>
+      <DataDiagnostics result={result} />
+
+      <Panel variant="light" title={`交易明细 · 共 ${(result.trades || []).length} 笔`}>
         {(result.trades || []).length === 0 ? (
-          <EmptyState title="该区间没有触发买卖" description="可以更换标的，或扩大回测天数继续观察这套固定策略。" />
+          <EmptyState
+            variant="light"
+            title="该区间没有触发买卖"
+            description={noTradeReason}
+          />
         ) : (
           <TableShell minWidth="760px">
             <thead>
-              <tr className="border-b border-slate-800 text-left text-slate-500">
+              <tr className="border-b border-slate-200 text-left text-slate-500">
                 <th className="px-3 py-2 font-normal">日期</th>
                 <th className="px-3 py-2 text-center font-normal">操作</th>
                 <th className="px-3 py-2 text-right font-normal">价格</th>
@@ -356,11 +389,11 @@ function SingleResult({ result, initialCapital }) {
               {(result.trades || []).map((trade, index) => (
                 <tr
                   key={`${trade.date}-${index}`}
-                  className={`border-b border-slate-800/60 ${
-                    trade.action === "BUY" ? "bg-red-500/5" : "bg-emerald-500/5"
+                  className={`border-b border-slate-100 ${
+                    trade.action === "BUY" ? "bg-red-50" : "bg-emerald-50"
                   }`}
                 >
-                  <td className="px-3 py-2.5 font-mono text-slate-400">{trade.date}</td>
+                  <td className="px-3 py-2.5 font-mono text-slate-500">{trade.date}</td>
                   <td className="px-3 py-2.5 text-center">
                     <SignalBadge type={trade.action}>
                       {trade.action === "BUY" ? "买入" : "卖出"}
@@ -378,6 +411,53 @@ function SingleResult({ result, initialCapital }) {
           </TableShell>
         )}
       </Panel>
+    </div>
+  );
+}
+
+function DataDiagnostics({ result }) {
+  const strategy = result.diagnostics?.strategy || {};
+  const warnings = Array.from(new Set([...(result.warnings || []), ...((result.diagnostics?.kline?.warnings) || [])]))
+    .filter(Boolean);
+  const signalCounts = strategy.signal_counts || {};
+  const latestState = strategy.latest_state || {};
+
+  return (
+    <Panel
+      variant="light"
+      title="数据与策略诊断"
+      description="用于区分行情 API、数据长度和策略状态机条件。"
+    >
+      <div className="grid gap-3 md:grid-cols-4">
+        <DiagnosticItem label="数据来源" value={result.data_source || "-"} />
+        <DiagnosticItem label="实际区间" value={`${result.actual_data_start_date || "-"} ~ ${result.actual_data_end_date || "-"}`} />
+        <DiagnosticItem label="K线数量" value={`${formatNumber(result.data_points || 0)} / 至少 ${formatNumber(strategy.min_required_bars || 260)}`} />
+        <DiagnosticItem label="信号统计" value={`买 ${signalCounts.BUY || 0} / 卖 ${signalCounts.SELL || 0}`} />
+      </div>
+
+      {(strategy.primary_reason || latestState.state) && (
+        <div className="mt-3 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+          {latestState.state && <span className="font-medium text-slate-800">{latestState.state}：</span>}
+          {strategy.primary_reason || latestState.reason}
+        </div>
+      )}
+
+      {warnings.length > 0 && (
+        <Notice tone="warn" variant="light" className="mt-3">
+          {warnings.slice(0, 3).join("；")}
+        </Notice>
+      )}
+    </Panel>
+  );
+}
+
+function DiagnosticItem({ label, value }) {
+  return (
+    <div className="border-l border-slate-200 pl-3">
+      <div className="text-[11px] text-slate-500">{label}</div>
+      <div className="mt-1 truncate font-mono text-sm font-semibold text-slate-900" title={String(value)}>
+        {value}
+      </div>
     </div>
   );
 }
@@ -408,12 +488,12 @@ function buildEquityOption(equityCurve, initialCapital) {
       type: "category",
       data: dates,
       axisLabel: { color: "#64748b", fontSize: 10 },
-      axisLine: { lineStyle: { color: "#334155" } },
+      axisLine: { lineStyle: { color: "#cbd5e1" } },
     },
     yAxis: {
       type: "value",
       axisLabel: { color: "#64748b", formatter: "{value}%" },
-      splitLine: { lineStyle: { color: "#1e293b" } },
+      splitLine: { lineStyle: { color: "#e2e8f0" } },
     },
     series: [
       {
@@ -421,7 +501,7 @@ function buildEquityOption(equityCurve, initialCapital) {
         type: "line",
         data: returns,
         symbol: "none",
-        lineStyle: { color: "#38bdf8", width: 1.8 },
+        lineStyle: { color: "#2563eb", width: 1.8 },
         areaStyle: {
           color: {
             type: "linear",
@@ -430,8 +510,8 @@ function buildEquityOption(equityCurve, initialCapital) {
             x2: 0,
             y2: 1,
             colorStops: [
-              { offset: 0, color: "rgba(56,189,248,0.22)" },
-              { offset: 1, color: "rgba(56,189,248,0)" },
+              { offset: 0, color: "rgba(37,99,235,0.14)" },
+              { offset: 1, color: "rgba(37,99,235,0)" },
             ],
           },
         },

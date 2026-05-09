@@ -1,14 +1,19 @@
 # -*- coding: utf-8 -*-
 # 股票与自选股 API 路由
 
+from datetime import datetime, timedelta
+
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.models.stock import StockDetail, StockList
 from backend.services.stock_service import (
     get_all_stocks,
     search_stocks,
+    search_stocks_with_meta,
     get_stock_detail,
     get_klines,
+    get_klines_with_diagnostics,
+    get_realtime_quote,
     add_to_watchlist,
     remove_from_watchlist,
     get_watchlist_all,
@@ -40,16 +45,16 @@ def stock_search(
     keyword: str = Query(..., min_length=1, description="股票代码或中文名称关键字"),
     limit: int = Query(default=10, ge=1, le=50, description="返回数量"),
 ):
-    items = search_stocks(keyword, limit=limit)
-    return {"total": len(items), "items": items}
+    return search_stocks_with_meta(keyword, limit=limit)
 
 
-@router.get("/stocks/{code}", response_model=StockDetail)
-def stock_detail(code: str):
-    detail = get_stock_detail(code)
-    if detail is None:
-        raise HTTPException(status_code=404, detail=f"股票 {code} 不存在")
-    return StockDetail(**detail)
+@router.get("/stocks/{code}/quote")
+def stock_quote(code: str):
+    """获取单只股票实时行情；实时源不可用时退回最新日线收盘价。"""
+    quote = get_realtime_quote(code)
+    if quote.get("data_source") == "empty":
+        raise HTTPException(status_code=404, detail=f"股票 {code} 暂无实时或日线行情")
+    return quote
 
 
 # ─── K线行情 ───
@@ -59,10 +64,29 @@ def stock_klines(
     code: str,
     start_date: str | None = Query(default=None, description="开始日期 YYYYMMDD"),
     end_date: str | None = Query(default=None, description="结束日期 YYYYMMDD"),
+    days: int | None = Query(default=None, ge=1, le=15000, description="最近N个自然日；未传start_date时生效"),
     frequency: str = Query(default="D", description="周期 D/W/M"),
 ):
-    klines = get_klines(code, start_date=start_date, end_date=end_date, frequency=frequency)
-    return {"code": code.zfill(6), "frequency": frequency, "count": len(klines), "data": klines}
+    resolved_start = start_date
+    resolved_end = end_date or datetime.now().strftime("%Y%m%d")
+    if days and not resolved_start:
+        resolved_start = (datetime.now() - timedelta(days=days)).strftime("%Y%m%d")
+
+    result = get_klines_with_diagnostics(
+        code,
+        start_date=resolved_start,
+        end_date=resolved_end,
+        frequency=frequency,
+    )
+    return result
+
+
+@router.get("/stocks/{code}", response_model=StockDetail)
+def stock_detail(code: str):
+    detail = get_stock_detail(code)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"股票 {code} 不存在")
+    return StockDetail(**detail)
 
 
 # ─── 自选股管理 ───

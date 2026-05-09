@@ -14,6 +14,14 @@ const toneClass = {
   info: "text-sky-300",
 };
 
+const lightToneClass = {
+  neutral: "text-slate-950",
+  up: "text-red-600",
+  down: "text-emerald-600",
+  warn: "text-amber-700",
+  info: "text-sky-700",
+};
+
 const noticeClass = {
   info: "border-sky-500/30 bg-sky-500/10 text-sky-100",
   warn: "border-amber-500/30 bg-amber-500/10 text-amber-100",
@@ -21,18 +29,26 @@ const noticeClass = {
   success: "border-emerald-500/30 bg-emerald-500/10 text-emerald-100",
 };
 
-export function PageHeader({ title, description, children, meta }) {
+const lightNoticeClass = {
+  info: "border-sky-200 bg-sky-50 text-sky-800",
+  warn: "border-amber-200 bg-amber-50 text-amber-800",
+  error: "border-red-200 bg-red-50 text-red-700",
+  success: "border-emerald-200 bg-emerald-50 text-emerald-800",
+};
+
+export function PageHeader({ title, description, children, meta, variant = "dark" }) {
+  const light = variant === "light";
   return (
     <header className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-semibold tracking-normal text-slate-50">
+          <h1 className={`text-xl font-semibold tracking-normal ${light ? "text-slate-950" : "text-slate-50"}`}>
             {title}
           </h1>
           {meta}
         </div>
         {description && (
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
+          <p className={`mt-1 max-w-3xl text-sm leading-6 ${light ? "text-slate-600" : "text-slate-500"}`}>
             {description}
           </p>
         )}
@@ -42,17 +58,18 @@ export function PageHeader({ title, description, children, meta }) {
   );
 }
 
-export function Panel({ title, description, actions, children, className = "" }) {
+export function Panel({ title, description, actions, children, className = "", variant = "dark" }) {
+  const light = variant === "light";
   return (
-    <section className={`rounded-lg border border-slate-800 bg-slate-900/70 ${className}`}>
+    <section className={`rounded-lg border ${light ? "border-slate-200 bg-white shadow-sm" : "border-slate-800 bg-slate-900/70"} ${className}`}>
       {(title || description || actions) && (
-        <div className="flex flex-col gap-3 border-b border-slate-800 px-4 py-3 md:flex-row md:items-start md:justify-between">
+        <div className={`flex flex-col gap-3 border-b px-4 py-3 md:flex-row md:items-start md:justify-between ${light ? "border-slate-100" : "border-slate-800"}`}>
           <div className="min-w-0">
             {title && (
-              <h2 className="text-sm font-medium text-slate-200">{title}</h2>
+              <h2 className={`text-sm font-medium ${light ? "text-slate-950" : "text-slate-200"}`}>{title}</h2>
             )}
             {description && (
-              <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+              <p className={`mt-1 text-xs leading-5 ${light ? "text-slate-500" : "text-slate-500"}`}>{description}</p>
             )}
           </div>
           {actions && <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>}
@@ -70,14 +87,17 @@ export function MetricCard({
   subValue,
   tone = "neutral",
   icon: Icon,
+  variant = "dark",
 }) {
+  const light = variant === "light";
+  const tones = light ? lightToneClass : toneClass;
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/80 p-4">
+    <div className={`rounded-lg border p-4 ${light ? "border-slate-200 bg-white shadow-sm" : "border-slate-800 bg-slate-900/80"}`}>
       <div className="mb-3 flex items-center justify-between gap-3">
-        <span className="text-xs text-slate-500">{label}</span>
-        {Icon && <Icon className="h-4 w-4 text-slate-600" strokeWidth={1.8} />}
+        <span className={`text-xs ${light ? "text-slate-500" : "text-slate-500"}`}>{label}</span>
+        {Icon && <Icon className={`h-4 w-4 ${light ? "text-slate-400" : "text-slate-600"}`} strokeWidth={1.8} />}
       </div>
-      <div className={`font-mono text-xl font-semibold ${toneClass[tone] || toneClass.neutral}`}>
+      <div className={`font-mono text-xl font-semibold ${tones[tone] || tones.neutral}`}>
         {value}
         {unit && <span className="ml-1 text-xs font-normal text-slate-500">{unit}</span>}
       </div>
@@ -86,31 +106,33 @@ export function MetricCard({
   );
 }
 
-export function Notice({ tone = "info", children, className = "" }) {
+export function Notice({ tone = "info", children, className = "", variant = "dark" }) {
   const Icon = tone === "success" ? CheckCircle2 : AlertTriangle;
+  const classes = variant === "light" ? lightNoticeClass : noticeClass;
   return (
-    <div className={`flex items-start gap-2 rounded border px-3 py-2 text-xs ${noticeClass[tone] || noticeClass.info} ${className}`}>
+    <div className={`flex items-start gap-2 rounded border px-3 py-2 text-xs ${classes[tone] || classes.info} ${className}`}>
       <Icon className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.8} />
       <div className="leading-5">{children}</div>
     </div>
   );
 }
 
-export function EmptyState({ title = "暂无数据", description, action }) {
+export function EmptyState({ title = "暂无数据", description, action, variant = "dark" }) {
+  const light = variant === "light";
   return (
-    <div className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-dashed border-slate-800 bg-slate-950/40 px-4 py-8 text-center">
-      <div className="text-sm font-medium text-slate-300">{title}</div>
+    <div className={`flex min-h-40 flex-col items-center justify-center rounded-lg border border-dashed px-4 py-8 text-center ${light ? "border-slate-300 bg-slate-50" : "border-slate-800 bg-slate-950/40"}`}>
+      <div className={`text-sm font-medium ${light ? "text-slate-800" : "text-slate-300"}`}>{title}</div>
       {description && (
-        <p className="mt-2 max-w-md text-xs leading-5 text-slate-500">{description}</p>
+        <p className={`mt-2 max-w-md text-xs leading-5 ${light ? "text-slate-500" : "text-slate-500"}`}>{description}</p>
       )}
       {action && <div className="mt-4">{action}</div>}
     </div>
   );
 }
 
-export function LoadingState({ label = "加载中..." }) {
+export function LoadingState({ label = "加载中...", variant = "dark" }) {
   return (
-    <div className="flex min-h-40 items-center justify-center gap-2 text-sm text-slate-500">
+    <div className={`flex min-h-40 items-center justify-center gap-2 text-sm ${variant === "light" ? "text-slate-500" : "text-slate-500"}`}>
       <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.8} />
       <span>{label}</span>
     </div>

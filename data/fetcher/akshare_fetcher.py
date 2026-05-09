@@ -16,11 +16,28 @@ def fetch_stock_list() -> pd.DataFrame:
     获取A股股票列表
     返回: DataFrame [code, name, exchange, industry, list_date]
     """
-    df = ak.stock_info_a_code_name()
+    try:
+        df = ak.stock_info_a_code_name()
+    except Exception:
+        df = pd.DataFrame()
+
+    if df is None or df.empty:
+        try:
+            df = ak.stock_zh_a_spot_em()
+            df = df.rename(columns={"代码": "code", "名称": "name"})
+        except Exception:
+            df = pd.DataFrame()
+
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["code", "name", "exchange"])
+
     df = df.rename(columns={
         "code": "code",
         "name": "name",
     })
+
+    if "code" not in df.columns or "name" not in df.columns:
+        return pd.DataFrame(columns=["code", "name", "exchange"])
 
     if "exchange" not in df.columns:
         df["exchange"] = df["code"].apply(_guess_exchange)

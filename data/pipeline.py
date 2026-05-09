@@ -3,7 +3,8 @@
 # 用法:
 #   python -m data.pipeline init                  # 初始化数据库
 #   python -m data.pipeline sync-stocks           # 全量同步股票列表
-#   python -m data.pipeline sync-klines           # 增量同步日K线
+#   python -m data.pipeline sync-klines --days 3000 --codes 600309  # 补最近3000天日K线
+#   python -m data.pipeline sync-history --codes 600309             # 从上市以来补日K线
 #   python -m data.pipeline sync-industries       # 行业板块+成分股
 #   python -m data.pipeline sync-fund-flows       # 资金流向
 #   python -m data.pipeline sync-financials       # 财务指标
@@ -18,7 +19,7 @@ from datetime import datetime, timedelta
 from .storage.database import init_db
 from .storage.repository import (
     upsert_stocks, upsert_klines,
-    query_stocks, get_latest_trade_date,
+    query_stocks, get_kline_date_range,
     upsert_industries, upsert_industry_stocks,
     upsert_fund_flows, upsert_financials,
 )
@@ -31,6 +32,9 @@ from .cleaner.cleaner import (
     clean_stock_list, clean_kline,
     clean_industry_list, clean_fund_flow, clean_financials,
 )
+
+FULL_HISTORY_START = "19900101"
+DEFAULT_KLINE_DAYS = 3000
 
 
 def run_init():
@@ -51,10 +55,14 @@ def run_sync_stocks():
     print(f"  写入数据库 {n} 条记录")
 
 
-def run_sync_klines(days_back: int = 365, codes: list[str] | None = None):
+def run_sync_klines(
+    days_back: int | None = DEFAULT_KLINE_DAYS,
+    codes: list[str] | None = None,
+    full_history: bool = False,
+):
     """
-    增量同步日K线
-    days_back: 向前补多少天数据
+    同步日K线，自动补齐历史缺口和最新缺口。
+    days_back: 向前补多少天数据；full_history=True 时从可获取最早日期开始。
     codes: 指定股票代码列表，不指定则拉取已入库的全部股票
     """
     if codes is None:
@@ -65,34 +73,39 @@ def run_sync_klines(days_back: int = 365, codes: list[str] | None = None):
         codes = existing["code"].tolist()
         print(f"全量模式，共 {len(codes)} 只股票")
 
-    start_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y%m%d")
-    end_date = datetime.now().strftime("%Y%m%d")
+    end_dt = datetime.now()
+    if full_history:
+        target_start = datetime.strptime(FULL_HISTORY_START, "%Y%m%d")
+    else:
+        target_start = end_dt - timedelta(days=days_back or DEFAULT_KLINE_DAYS)
+
+    start_date = target_start.strftime("%Y%m%d")
+    end_date = end_dt.strftime("%Y%m%d")
+    mode_name = "上市以来" if full_history else f"最近{days_back or DEFAULT_KLINE_DAYS}天"
+    print(f"K线同步范围: {mode_name} ({start_date} ~ {end_date})")
+
     total = 0
     errors = 0
 
     for i, code in enumerate(codes):
         code = str(code).zfill(6)
-        last_date = get_latest_trade_date(code)
-        if last_date:
-            actual_start = max(
-                datetime.strptime(start_date, "%Y%m%d"),
-                last_date + timedelta(days=1),
-            )
-        else:
-            actual_start = datetime.strptime(start_date, "%Y%m%d")
-
-        end_dt = datetime.strptime(end_date, "%Y%m%d")
-        if actual_start >= end_dt:
+        first_date, last_date = get_kline_date_range(code)
+        windows = _build_kline_fetch_windows(target_start, end_dt, first_date, last_date)
+        if not windows:
             continue
 
         try:
-            raw = fetch_daily_kline(code, start_date=actual_start.strftime("%Y%m%d"), end_date=end_date)
-            if raw.empty:
-                continue
-            clean = clean_kline(raw)
-            n = upsert_klines(clean)
-            total += n
-            if (i + 1) % 100 == 0:
+            for win_start, win_end in windows:
+                raw = fetch_daily_kline(
+                    code,
+                    start_date=win_start.strftime("%Y%m%d"),
+                    end_date=win_end.strftime("%Y%m%d"),
+                )
+                if raw.empty:
+                    continue
+                clean = clean_kline(raw)
+                total += upsert_klines(clean)
+            if (i + 1) % 50 == 0:
                 print(f"  进度: {i + 1}/{len(codes)}, 累计 {total} 条K线")
         except Exception as e:
             errors += 1
@@ -101,6 +114,28 @@ def run_sync_klines(days_back: int = 365, codes: list[str] | None = None):
                 traceback.print_exc()
 
     print(f"同步完成: {len(codes)} 只股票, {total} 条K线, {errors} 个错误")
+
+
+def _build_kline_fetch_windows(
+    target_start: datetime,
+    target_end: datetime,
+    first_date,
+    last_date,
+) -> list[tuple[datetime, datetime]]:
+    """根据本地覆盖区间计算需要抓取的历史和最新窗口。"""
+    if first_date is None or last_date is None:
+        return [(target_start, target_end)]
+
+    first_dt = pd.to_datetime(first_date).to_pydatetime()
+    last_dt = pd.to_datetime(last_date).to_pydatetime()
+    windows: list[tuple[datetime, datetime]] = []
+
+    if first_dt > target_start + timedelta(days=1):
+        windows.append((target_start, first_dt - timedelta(days=1)))
+    if last_dt < target_end - timedelta(days=1):
+        windows.append((last_dt + timedelta(days=1), target_end))
+
+    return [(start, end) for start, end in windows if start < end]
 
 
 def run_sync_industries(fetch_constituents: bool = False):
@@ -216,11 +251,12 @@ def main():
         choices=[
             "init", "sync-stocks", "sync-klines",
             "sync-industries", "sync-fund-flows", "sync-financials",
-            "sync-all",
+            "sync-all", "sync-history",
         ],
     )
-    parser.add_argument("--days", type=int, default=365, help="K线回溯天数")
+    parser.add_argument("--days", type=int, default=DEFAULT_KLINE_DAYS, help="K线回溯天数")
     parser.add_argument("--codes", nargs="*", default=None, help="指定股票代码")
+    parser.add_argument("--full-history", action="store_true", help="从可获取最早日期同步日K线")
     parser.add_argument("--constituents", action="store_true", help="是否拉取成分股")
     args = parser.parse_args()
 
@@ -229,7 +265,9 @@ def main():
     elif args.command == "sync-stocks":
         run_sync_stocks()
     elif args.command == "sync-klines":
-        run_sync_klines(days_back=args.days, codes=args.codes)
+        run_sync_klines(days_back=args.days, codes=args.codes, full_history=args.full_history)
+    elif args.command == "sync-history":
+        run_sync_klines(days_back=None, codes=args.codes, full_history=True)
     elif args.command == "sync-industries":
         run_sync_industries(fetch_constituents=args.constituents)
     elif args.command == "sync-fund-flows":

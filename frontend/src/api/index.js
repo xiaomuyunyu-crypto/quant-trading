@@ -11,7 +11,7 @@ export const API_MODE = API_BASE_URL === "/api" ? "local-proxy" : "remote";
 
 const client = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000,
+  timeout: 120000,
   headers: { "Content-Type": "application/json" },
 });
 

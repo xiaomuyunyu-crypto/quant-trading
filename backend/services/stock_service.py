@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from data.storage.database import get_session
 from data.storage.repository import (
     query_stocks,
@@ -12,6 +14,26 @@ from data.storage.repository import (
 )
 from data.storage.models_orm import StockModel, WatchlistModel, KlineModel
 from sqlalchemy import select
+
+_stock_bootstrap_status = {
+    "source": "cache",
+    "error": None,
+}
+
+_FALLBACK_SEARCH_STOCKS = [
+    {"code": "600055", "name": "万东医疗", "exchange": "SH", "industry": None, "list_date": None},
+    {"code": "600246", "name": "万通发展", "exchange": "SH", "industry": None, "list_date": None},
+    {"code": "600309", "name": "万华化学", "exchange": "SH", "industry": None, "list_date": None},
+    {"code": "600371", "name": "万向德农", "exchange": "SH", "industry": None, "list_date": None},
+    {"code": "600847", "name": "万里股份", "exchange": "SH", "industry": None, "list_date": None},
+    {"code": "603010", "name": "万盛股份", "exchange": "SH", "industry": None, "list_date": None},
+    {"code": "000001", "name": "平安银行", "exchange": "SZ", "industry": None, "list_date": None},
+    {"code": "600036", "name": "招商银行", "exchange": "SH", "industry": None, "list_date": None},
+    {"code": "600519", "name": "贵州茅台", "exchange": "SH", "industry": None, "list_date": None},
+    {"code": "300750", "name": "宁德时代", "exchange": "SZ", "industry": None, "list_date": None},
+    {"code": "159915", "name": "创业板ETF", "exchange": "SZ", "industry": "ETF/基金", "list_date": None},
+    {"code": "510300", "name": "沪深300ETF", "exchange": "SH", "industry": "ETF/基金", "list_date": None},
+]
 
 
 def get_all_stocks(exchange: str | None = None) -> list[dict]:
@@ -24,9 +46,11 @@ def get_all_stocks(exchange: str | None = None) -> list[dict]:
 
 def _ensure_stocks_populated() -> int:
     """确保stocks表有数据；为空时从AKShare拉取全量A股列表并写入。返回stocks数量。"""
+    global _stock_bootstrap_status
     with get_session() as session:
         count = session.query(StockModel).count()
         if count > 0:
+            _stock_bootstrap_status = {"source": "cache", "error": None}
             return count
 
     try:
@@ -39,9 +63,11 @@ def _ensure_stocks_populated() -> int:
         if df is not None and not df.empty:
             upsert_stocks(df)
             with get_session() as session:
+                _stock_bootstrap_status = {"source": "akshare", "error": None}
                 return session.query(StockModel).count()
-    except Exception:
-        pass
+        _stock_bootstrap_status = {"source": "empty", "error": "AKShare股票列表为空"}
+    except Exception as exc:
+        _stock_bootstrap_status = {"source": "empty", "error": str(exc)}
 
     with get_session() as session:
         return session.query(StockModel).count()
@@ -49,9 +75,14 @@ def _ensure_stocks_populated() -> int:
 
 def search_stocks(keyword: str, limit: int = 10) -> list[dict]:
     """按代码或中文名称搜索股票，优先从stocks表查，为空则查自选股。"""
+    return search_stocks_with_meta(keyword, limit=limit)["items"]
+
+
+def search_stocks_with_meta(keyword: str, limit: int = 10) -> dict:
+    """搜索股票并返回数据来源诊断。"""
     query = keyword.strip()
     if not query:
-        return []
+        return {"total": 0, "items": [], "data_source": "empty", "warnings": []}
 
     limit = max(1, min(limit, 50))
 
@@ -104,7 +135,24 @@ def search_stocks(keyword: str, limit: int = 10) -> list[dict]:
         ))
 
     matches.sort(key=lambda item: (item[0], item[1]))
-    return [item[2] for item in matches[:limit]]
+    items = [item[2] for item in matches[:limit]]
+    data_source = _stock_bootstrap_status.get("source") or "cache"
+    warnings = []
+    if not items and _stock_bootstrap_status.get("error"):
+        fallback_items = _search_fallback_stocks(query, limit, watch_codes)
+        if fallback_items:
+            items = fallback_items
+            data_source = "fallback"
+            warnings.append("AKShare股票基础列表暂不可用，已使用内置应急候选；输入6位代码仍可直接回测")
+        else:
+            warnings.append(f"AKShare股票基础列表暂不可用：{_stock_bootstrap_status.get('error')}")
+
+    return {
+        "total": len(items),
+        "items": items,
+        "data_source": data_source,
+        "warnings": warnings,
+    }
 
 
 def get_stock_detail(code: str) -> dict | None:
@@ -161,6 +209,115 @@ def get_klines(
         if col in df.columns:
             df[col] = df[col].astype(str)
     return df.to_dict(orient="records")
+
+
+def get_klines_with_diagnostics(
+    code: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    frequency: str = "D",
+) -> dict:
+    from backend.core.kline_utils import get_klines_with_meta
+
+    result = get_klines_with_meta(
+        code,
+        start_date=start_date,
+        end_date=end_date,
+        frequency=frequency,
+    )
+    df = result.df
+    data = []
+    if df is not None and not df.empty:
+        if "date" in df.columns:
+            df = df.copy()
+            df["date"] = df["date"].astype(str)
+        data = df.to_dict(orient="records")
+
+    meta = result.to_dict()
+    meta["data"] = data
+    meta["count"] = len(data)
+    return meta
+
+
+def get_realtime_quote(code: str) -> dict:
+    """获取单只股票实时行情；失败时退回最新日线收盘价。"""
+    lookup_code = _normalize_stock_code(code)
+    now = datetime.now()
+    errors = []
+
+    try:
+        from data.fetcher.akshare_fetcher import fetch_realtime_quotes
+
+        quotes = fetch_realtime_quotes()
+        if quotes is not None and not quotes.empty:
+            row = quotes[quotes["code"].astype(str).str.zfill(6) == lookup_code]
+            if not row.empty:
+                item = row.iloc[0].to_dict()
+                return {
+                    "code": lookup_code,
+                    "name": str(item.get("name", "")),
+                    "current": _safe_float(item.get("current")),
+                    "change": _safe_float(item.get("change")),
+                    "change_pct": _safe_float(item.get("change_pct")),
+                    "volume": _safe_float(item.get("volume")),
+                    "amount": _safe_float(item.get("amount")),
+                    "high": _safe_optional_float(item.get("high")),
+                    "low": _safe_optional_float(item.get("low")),
+                    "open": _safe_optional_float(item.get("open")),
+                    "pre_close": _safe_optional_float(item.get("pre_close")),
+                    "timestamp": now.isoformat(),
+                    "data_source": "akshare_realtime",
+                    "is_realtime": True,
+                    "warnings": [],
+                    "errors": [],
+                }
+    except Exception as exc:
+        errors.append(str(exc))
+
+    start_date = (now - timedelta(days=60)).strftime("%Y%m%d")
+    kline_meta = get_klines_with_diagnostics(lookup_code, start_date=start_date, frequency="D")
+    data = kline_meta.get("data") or []
+    if data:
+        latest = data[-1]
+        prev = data[-2] if len(data) > 1 else None
+        current = _safe_float(latest.get("close"))
+        prev_close = _safe_float(prev.get("close")) if prev else current
+        change = current - prev_close if prev else 0.0
+        change_pct = change / prev_close * 100 if prev_close else 0.0
+        return {
+            "code": lookup_code,
+            "name": get_stock_detail(lookup_code).get("name", "") if get_stock_detail(lookup_code) else "",
+            "current": current,
+            "change": round(change, 4),
+            "change_pct": round(change_pct, 4),
+            "volume": _safe_float(latest.get("volume")),
+            "amount": _safe_float(latest.get("amount")),
+            "high": _safe_optional_float(latest.get("high")),
+            "low": _safe_optional_float(latest.get("low")),
+            "open": _safe_optional_float(latest.get("open")),
+            "pre_close": prev_close,
+            "trade_date": str(latest.get("date", ""))[:10],
+            "timestamp": now.isoformat(),
+            "data_source": "latest_daily_kline",
+            "is_realtime": False,
+            "warnings": ["实时行情暂不可用，已退回最新日线收盘价"] + kline_meta.get("warnings", []),
+            "errors": errors + kline_meta.get("errors", []),
+        }
+
+    return {
+        "code": lookup_code,
+        "name": "",
+        "current": 0.0,
+        "change": 0.0,
+        "change_pct": 0.0,
+        "volume": 0.0,
+        "amount": 0.0,
+        "timestamp": now.isoformat(),
+        "data_source": "empty",
+        "is_realtime": False,
+        "warnings": ["实时行情和日线兜底均未取得数据"],
+        "errors": errors + kline_meta.get("errors", []),
+    }
 
 
 def add_to_watchlist(code: str, name: str = "", tags: list[str] | None = None, notes: str | None = None) -> dict:
@@ -259,6 +416,45 @@ def _market_label(exchange: str | None) -> str:
         "HK": "港股", "US": "美股",
     }
     return mapping.get(exchange or "", exchange or "-")
+
+
+def _search_fallback_stocks(query: str, limit: int, watch_codes: set[str]) -> list[dict]:
+    matches = []
+    for stock in _FALLBACK_SEARCH_STOCKS:
+        score = _stock_match_score(query, stock["code"], stock["name"])
+        if score is None:
+            continue
+        exchange = stock.get("exchange", "")
+        item = {
+            "code": stock["code"],
+            "name": stock["name"],
+            "exchange": exchange,
+            "market_label": _market_label(exchange),
+            "industry": stock.get("industry"),
+            "list_date": stock.get("list_date"),
+            "is_watchlist": stock["code"] in watch_codes,
+        }
+        matches.append((score, stock["code"], item))
+    matches.sort(key=lambda item: (item[0], item[1]))
+    return [item[2] for item in matches[:limit]]
+
+
+def _safe_float(value) -> float:
+    try:
+        if value is None:
+            return 0.0
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _safe_optional_float(value) -> float | None:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _normalize_stock_code(code: str) -> str:

@@ -3,7 +3,7 @@
 
 import pandas as pd
 from datetime import date, datetime
-from sqlalchemy import select, delete, and_
+from sqlalchemy import select, delete, and_, func
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from .database import get_session
@@ -146,6 +146,18 @@ def get_latest_trade_date(code: str) -> datetime | None:
         )
         result = session.execute(stmt).scalar_one_or_none()
         return result
+
+
+def get_kline_date_range(code: str, frequency: str = "D") -> tuple[datetime | None, datetime | None]:
+    """获取某股票本地K线覆盖区间。"""
+    with get_session() as session:
+        stmt = select(func.min(KlineModel.date), func.max(KlineModel.date)).where(
+            KlineModel.code == code.zfill(6)
+        )
+        if frequency:
+            stmt = stmt.where(KlineModel.frequency == frequency)
+        first_date, last_date = session.execute(stmt).one()
+        return first_date, last_date
 
 
 # ─── 自选股 ───

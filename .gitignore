@@ -33,3 +33,5 @@ Thumbs.db
 外部资料/参考-Hikyuu/
 data/db/*.db
 .codex/
+
+.vercel
