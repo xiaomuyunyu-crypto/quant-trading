@@ -16,7 +16,7 @@ def get_klines_df(
     """查询K线数据，优先本地库；日线缺失时用AKShare快速兜底并写回缓存。"""
     lookup_code = _normalize_lookup_code(code)
     df = _query_klines_from_db(lookup_code, start_date, end_date, frequency)
-    if df is not None and not df.empty:
+    if df is not None and not df.empty and not _needs_daily_refill(df, start_date, end_date, frequency):
         return df
 
     if frequency != "D":
@@ -40,7 +40,7 @@ def get_klines_df(
         upsert_klines(cleaned)
         return _query_klines_from_db(lookup_code, start_date, end_date, frequency)
     except Exception:
-        return None
+        return df if df is not None and not df.empty else None
 
 
 def _query_klines_from_db(
@@ -85,3 +85,30 @@ def _to_akshare_date(value: str | None) -> str | None:
     if not value:
         return None
     return pd.to_datetime(value).strftime("%Y%m%d")
+
+
+def _needs_daily_refill(
+    df: pd.DataFrame,
+    start_date: str | None,
+    end_date: str | None,
+    frequency: str,
+) -> bool:
+    """判断本地日线是否只覆盖了请求区间的一部分。"""
+    if frequency != "D" or df is None or df.empty:
+        return False
+
+    dates = pd.to_datetime(df["date"], errors="coerce").dropna()
+    if dates.empty:
+        return True
+
+    first_date = dates.min()
+    last_date = dates.max()
+    if start_date:
+        target_start = pd.to_datetime(start_date)
+        if first_date > target_start + pd.Timedelta(days=10):
+            return True
+    if end_date:
+        target_end = pd.to_datetime(end_date)
+        if last_date < target_end - pd.Timedelta(days=10):
+            return True
+    return False

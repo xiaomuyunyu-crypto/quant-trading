@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import ReactECharts from "echarts-for-react";
 import {
   BarChart3,
@@ -7,7 +7,6 @@ import {
   LineChart,
   Play,
   Search,
-  SlidersHorizontal,
 } from "lucide-react";
 import api from "../api/index";
 import StockSearchInput, { formatStockLabel } from "../components/StockSearchInput";
@@ -24,59 +23,42 @@ import {
 } from "../components/WorkbenchUI";
 import { formatCurrency, formatNumber, formatPercent, toneByValue } from "../lib/format";
 
-const MOCK_CATEGORIES = [
-  {
-    name: "我的策略",
-    strategies: [
-      { key: "triple_macd_ma250", name: "三周期MACD+MA250状态机", desc: "月线MACD→MA250→周线→日线，八状态", params: {} },
-    ],
-  },
-];
+const ACTIVE_STRATEGY = {
+  key: "triple_macd_ma250",
+  name: "三周期MACD+250日均线状态机",
+  desc: "月线MACD定方向，250日均线定长期开关，周线开窗口，日线执行买卖。",
+};
 
 const initialStock = { code: "000001", name: "平安银行", market_label: "深A" };
 
 const ROLLING_STOCKS = [
-  { code: "600055", name: "万东医疗", market_label: "沪A", initials: "WDYL" },
-  { code: "600246", name: "万通发展", market_label: "沪A", initials: "WTFZ" },
-  { code: "600309", name: "万华化学", market_label: "沪A", initials: "WHHX" },
-  { code: "600371", name: "万向德农", market_label: "沪A", initials: "WXDN" },
-  { code: "600847", name: "万里股份", market_label: "沪A", initials: "WLGF" },
-  { code: "603010", name: "万盛股份", market_label: "沪A", initials: "WSGF" },
+  { code: "159915", name: "创业板ETF", market_label: "深A", initials: "CYBETF" },
+  { code: "510300", name: "沪深300ETF", market_label: "沪A", initials: "HS300ETF" },
+  { code: "510050", name: "上证50ETF", market_label: "沪A", initials: "SZ50ETF" },
+  { code: "159949", name: "创业板50", market_label: "深A", initials: "CYB50" },
+  { code: "512100", name: "中证1000ETF", market_label: "沪A", initials: "ZZ1000" },
   { code: "000001", name: "平安银行", market_label: "深A", initials: "PAYH" },
   { code: "600036", name: "招商银行", market_label: "沪A", initials: "ZSYH" },
+  { code: "600519", name: "贵州茅台", market_label: "沪A", initials: "GZMT" },
   { code: "300750", name: "宁德时代", market_label: "深A", initials: "NDSD" },
+  { code: "000858", name: "五粮液", market_label: "深A", initials: "WLY" },
+  { code: "601318", name: "中国平安", market_label: "沪A", initials: "ZGPA" },
+  { code: "600309", name: "万华化学", market_label: "沪A", initials: "WHHX" },
+  { code: "002415", name: "海康威视", market_label: "深A", initials: "HKWS" },
+  { code: "000333", name: "美的集团", market_label: "深A", initials: "MDJT" },
+  { code: "600276", name: "恒瑞医药", market_label: "沪A", initials: "HRYY" },
 ];
 
 export default function Backtest() {
-  const [categories, setCategories] = useState([]);
-  const [selectedStrategy, setSelectedStrategy] = useState("triple_macd_ma250");
   const [stockInput, setStockInput] = useState(formatStockLabel(initialStock));
   const [selectedStock, setSelectedStock] = useState(initialStock);
-  const [params, setParams] = useState({ code: initialStock.code, days: 365, capital: 10000 });
+  const [params, setParams] = useState({ code: initialStock.code, days: 1000, capital: 10000 });
   const [mode, setMode] = useState("single");
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
-  const [loadError, setLoadError] = useState("");
-
-  useEffect(() => {
-    api
-      .get("/backtest/strategies")
-      .then((res) => {
-        const list = Array.isArray(res) ? res : res.categories || [];
-        setCategories(list.length > 0 ? list : MOCK_CATEGORIES);
-      })
-      .catch(() => {
-        setLoadError("后端未连接，展示演示策略列表");
-        setCategories(MOCK_CATEGORIES);
-      });
-  }, []);
-
-  const flatStrategies = useMemo(
-    () => categories.flatMap((cat) => cat.strategies || []),
-    [categories]
-  );
-  const currentStrategy = flatStrategies.find((item) => item.key === selectedStrategy);
+  const selectedStrategy = ACTIVE_STRATEGY.key;
+  const currentStrategy = ACTIVE_STRATEGY;
 
   const updateParam = (key, value) => {
     setParams((prev) => ({ ...prev, [key]: value }));
@@ -96,53 +78,24 @@ export default function Backtest() {
     setError("");
   };
 
-  const run = async (nextMode = mode) => {
+  const run = async () => {
     if (!params.code.trim()) {
       setError("请输入6位股票代码，或输入名称后从候选列表选择股票");
       return;
     }
-    if ((nextMode === "single" || nextMode === "optimize") && !selectedStrategy) {
-      setError("请选择一个策略");
-      return;
-    }
-    if (nextMode === "optimize" && !["triple_macd_ma250"].includes(selectedStrategy)) {
-      setError("当前后端参数优化只支持 ma_cross 和 macd_daily，请先选择对应策略");
-      return;
-    }
 
-    setMode(nextMode);
+    setMode("single");
     setError("");
     setResult(null);
     setRunning(true);
     try {
-      if (nextMode === "single") {
-        const data = await api.post("/backtest", {
-          code: params.code.trim(),
-          strategy: selectedStrategy,
-          days: Number(params.days),
-          initial_capital: Number(params.capital),
-        });
-        setResult({ type: "single", data });
-      } else if (nextMode === "compare") {
-        const data = await api.get("/backtest/compare", {
-          params: {
-            code: params.code.trim(),
-            days: Number(params.days),
-            initial_capital: Number(params.capital),
-          },
-        });
-        setResult({ type: "compare", data });
-      } else {
-        const data = await api.get("/backtest/optimize", {
-          params: {
-            code: params.code.trim(),
-            strategy: selectedStrategy,
-            days: Number(params.days),
-            initial_capital: Number(params.capital),
-          },
-        });
-        setResult({ type: "optimize", data });
-      }
+      const data = await api.post("/backtest", {
+        code: params.code.trim(),
+        strategy: selectedStrategy,
+        days: Number(params.days),
+        initial_capital: Number(params.capital),
+      });
+      setResult({ type: "single", data });
     } catch (e) {
       setError(e.message || "回测请求失败");
     } finally {
@@ -155,7 +108,7 @@ export default function Backtest() {
       <div className="border-b border-slate-200 bg-white px-5 py-4">
         <PageHeader
           title="策略回测工作台"
-          description="先选标的，再选择策略与资金区间。单次回测看可行性，策略对比看稳定性，参数优化只作为继续观察的起点。"
+          description="只保留你的三周期 MACD + 250 日均线交易状态机。先滚动选股，再用固定规则做单标的回测。"
           meta={
             currentStrategy && (
               <span className="rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-600">
@@ -175,7 +128,7 @@ export default function Backtest() {
                 <h2 className="text-sm font-semibold text-slate-950">滚动选股</h2>
               </div>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                支持代码、中文和首字母。接口不可用时会保留本地候选，避免预览页空掉。
+                输入几个汉字，或 1-2 位数字代码，下方会出现可选择的“代码 + 股票名称”。
               </p>
             </div>
 
@@ -186,11 +139,13 @@ export default function Backtest() {
                 onChange={handleStockInputChange}
                 onSelect={handleStockSelect}
                 onSubmitCode={(code) => updateParam("code", code)}
-                placeholder="输入 万 / 600309 / WHHX"
-                helperText="点击输入框后可滚动选择候选标的"
+                placeholder="输入股票名称或代码，例如 万 / 60 / 600309"
+                helperText="输入一两个数字或几个字后，从下方候选列表选择股票"
                 variant="light"
                 limit={10}
                 showInitialSuggestions
+                resultMode="code-name"
+                selectOnFocus
               />
 
               <div className="rounded border border-orange-200 bg-orange-50/50 px-3 py-2">
@@ -216,11 +171,9 @@ export default function Backtest() {
                   <span className="text-[11px] text-slate-400">可滚动</span>
                 </div>
                 <div className="overflow-hidden rounded border border-slate-200">
-                  <div className="grid grid-cols-[54px_78px_1fr_76px] border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                    <span>市场</span>
+                  <div className="grid grid-cols-[96px_1fr] border-b border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
                     <span>代码</span>
-                    <span>名称</span>
-                    <span>首字母</span>
+                    <span>股票名称</span>
                   </div>
                   <div className="max-h-60 overflow-auto bg-white">
                     {ROLLING_STOCKS.map((stock) => (
@@ -228,18 +181,12 @@ export default function Backtest() {
                         key={stock.code}
                         type="button"
                         onClick={() => handleStockSelect(stock)}
-                        className={`grid w-full grid-cols-[54px_78px_1fr_76px] items-center border-b border-slate-100 px-3 py-2.5 text-left text-sm transition-colors hover:bg-orange-50 ${
+                        className={`grid w-full grid-cols-[96px_1fr] items-center border-b border-slate-100 px-3 py-2.5 text-left text-sm transition-colors hover:bg-orange-50 ${
                           params.code === stock.code ? "bg-orange-50" : "bg-white"
                         }`}
                       >
-                        <span className="w-10 bg-blue-600 px-1.5 py-0.5 text-center text-xs text-white">
-                          {stock.market_label}
-                        </span>
                         <span className="font-mono text-slate-800">{stock.code}</span>
                         <span className="truncate text-slate-950">{stock.name}</span>
-                        <span className="truncate font-mono text-xs text-slate-500">
-                          {stock.initials}
-                        </span>
                       </button>
                     ))}
                   </div>
@@ -252,11 +199,10 @@ export default function Backtest() {
             <div className="mb-4">
               <h2 className="text-sm font-semibold text-slate-950">回测参数</h2>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                MVP 规则：收盘价、满仓进出、忽略手续费。
+                MVP 规则：收盘价、满仓进出、忽略手续费。三周期策略至少需要 260 根日线，默认取 1000 天。
               </p>
             </div>
 
-            {loadError && <Notice tone="warn" className="mb-4">{loadError}</Notice>}
             {error && <Notice tone="error" className="mb-4">{error}</Notice>}
 
             <div className="space-y-5">
@@ -286,67 +232,27 @@ export default function Backtest() {
               </div>
 
               <div>
-                <label className="mb-2 block text-xs text-slate-500">策略选择</label>
-                <div className="max-h-[300px] space-y-4 overflow-auto pr-1">
-                  {categories.map((cat) => (
-                    <div key={cat.name}>
-                      <div className="mb-2 text-xs font-medium text-slate-500">{cat.name}</div>
-                      <div className="space-y-1.5">
-                        {(cat.strategies || []).map((strategy) => (
-                          <label
-                            key={strategy.key}
-                            className={`flex cursor-pointer items-start gap-2 rounded border px-3 py-2 transition-colors ${
-                              selectedStrategy === strategy.key
-                                ? "border-blue-500/60 bg-blue-50"
-                                : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                            }`}
-                          >
-                            <input
-                              type="radio"
-                              name="strategy"
-                              value={strategy.key}
-                              checked={selectedStrategy === strategy.key}
-                              onChange={() => setSelectedStrategy(strategy.key)}
-                              className="mt-1 accent-blue-600"
-                            />
-                            <span className="min-w-0">
-                              <span className="block text-xs font-medium text-slate-950">
-                                {strategy.name}
-                              </span>
-                              <span className="mt-0.5 block truncate text-xs text-slate-500">
-                                {strategy.desc}
-                              </span>
-                            </span>
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
+                <label className="mb-2 block text-xs text-slate-500">固定策略</label>
+                <div className="rounded border border-blue-200 bg-blue-50 px-3 py-3">
+                  <div className="text-sm font-semibold text-slate-950">
+                    {ACTIVE_STRATEGY.name}
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">
+                    {ACTIVE_STRATEGY.desc}
+                  </p>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-[11px] text-slate-600">
+                    <span className="rounded border border-blue-100 bg-white px-2 py-1">月线 MACD</span>
+                    <span className="rounded border border-blue-100 bg-white px-2 py-1">250 日均线</span>
+                    <span className="rounded border border-blue-100 bg-white px-2 py-1">周线窗口</span>
+                    <span className="rounded border border-blue-100 bg-white px-2 py-1">日线执行</span>
+                  </div>
                 </div>
               </div>
 
               <div className="grid gap-2">
-                <Button icon={Play} onClick={() => run("single")} disabled={running}>
+                <Button icon={Play} onClick={run} disabled={running}>
                   {running && mode === "single" ? "回测中..." : "开始回测"}
                 </Button>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    variant="secondary"
-                    icon={BarChart3}
-                    onClick={() => run("compare")}
-                    disabled={running}
-                  >
-                    策略对比
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    icon={SlidersHorizontal}
-                    onClick={() => run("optimize")}
-                    disabled={running}
-                  >
-                    参数优化
-                  </Button>
-                </div>
               </div>
             </div>
           </section>
@@ -358,7 +264,7 @@ export default function Backtest() {
               <div>
                 <div className="text-xs text-slate-500">运行模式</div>
                 <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-950">
-                  {mode === "single" ? "单股回测" : mode === "compare" ? "策略对比" : "参数优化"}
+                  单股回测
                   <ChevronRight className="h-4 w-4 text-slate-400" strokeWidth={1.8} />
                 </div>
               </div>
@@ -381,15 +287,11 @@ export default function Backtest() {
             <LoadingState label="正在执行回测计算..." />
           ) : !result ? (
             <EmptyState
-              title="请选择模式并开始"
-              description="左侧设置标的、天数、资金和策略后，可执行单股回测、全部策略对比或参数优化。"
+              title="请选择标的并开始"
+              description="左侧输入股票名称或代码选择标的，设置天数和资金后，用固定的 MACD + 250 日均线策略执行回测。"
             />
-          ) : result.type === "single" ? (
-            <SingleResult result={result.data} initialCapital={Number(params.capital)} />
-          ) : result.type === "compare" ? (
-            <CompareResult result={result.data} />
           ) : (
-            <OptimizeResult result={result.data} />
+            <SingleResult result={result.data} initialCapital={Number(params.capital)} />
           )}
         </main>
       </div>
@@ -437,7 +339,7 @@ function SingleResult({ result, initialCapital }) {
 
       <Panel title={`交易明细 · 共 ${(result.trades || []).length} 笔`}>
         {(result.trades || []).length === 0 ? (
-          <EmptyState title="该区间没有触发买卖" description="可以更换标的、扩大回测天数或尝试策略对比。" />
+          <EmptyState title="该区间没有触发买卖" description="可以更换标的，或扩大回测天数继续观察这套固定策略。" />
         ) : (
           <TableShell minWidth="760px">
             <thead>
@@ -470,107 +372,6 @@ function SingleResult({ result, initialCapital }) {
                   <td className="max-w-xs truncate px-3 py-2.5 text-slate-500" title={trade.reason}>
                     {trade.reason || "-"}
                   </td>
-                </tr>
-              ))}
-            </tbody>
-          </TableShell>
-        )}
-      </Panel>
-    </div>
-  );
-}
-
-function CompareResult({ result }) {
-  const best = result.best;
-  const rows = result.results || [];
-  return (
-    <div className="space-y-5">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="策略数量" value={formatNumber(result.total_strategies)} unit="个" icon={FlaskConical} />
-        <MetricCard label="有交易策略" value={formatNumber(result.has_trades)} unit="个" icon={BarChart3} />
-        <MetricCard
-          label="最佳策略"
-          value={best?.name || "-"}
-          subValue={best ? formatPercent(best.total_return) : "暂无交易"}
-          tone={toneByValue(best?.total_return)}
-          icon={LineChart}
-        />
-        <MetricCard label="回测标的" value={result.code} icon={SlidersHorizontal} />
-      </div>
-
-      <Panel title="策略排名" description="优先看收益率，再看最大回撤和交易次数，避免只追最高收益。">
-        <TableShell minWidth="820px">
-          <thead>
-            <tr className="border-b border-slate-800 text-left text-slate-500">
-              <th className="px-3 py-2 font-normal">排名</th>
-              <th className="px-3 py-2 font-normal">策略</th>
-              <th className="px-3 py-2 font-normal">类别</th>
-              <th className="px-3 py-2 text-right font-normal">收益率</th>
-              <th className="px-3 py-2 text-right font-normal">最大回撤</th>
-              <th className="px-3 py-2 text-right font-normal">交易</th>
-              <th className="px-3 py-2 text-right font-normal">Calmar</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.key} className="border-b border-slate-800/60 hover:bg-slate-900">
-                <td className="px-3 py-2.5 font-mono text-slate-500">{row.rank}</td>
-                <td className="px-3 py-2.5 text-slate-100">{row.name}</td>
-                <td className="px-3 py-2.5 text-slate-500">{row.category}</td>
-                <td className={`px-3 py-2.5 text-right font-mono ${(row.total_return || 0) >= 0 ? "text-up" : "text-down"}`}>
-                  {formatPercent(row.total_return)}
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono text-down">{formatPercent(row.max_drawdown)}</td>
-                <td className="px-3 py-2.5 text-right font-mono text-slate-400">{formatNumber(row.total_trades)}</td>
-                <td className="px-3 py-2.5 text-right font-mono text-slate-400">{formatNumber(row.calmar, 2)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </TableShell>
-      </Panel>
-    </div>
-  );
-}
-
-function OptimizeResult({ result }) {
-  const rows = result.all || result.top5 || [];
-  const best = rows[0];
-  return (
-    <div className="space-y-5">
-      <div className="grid gap-4 md:grid-cols-3">
-        <MetricCard label="参数组合" value={formatNumber(result.total_combinations)} unit="组" icon={SlidersHorizontal} />
-        <MetricCard label="当前策略" value={result.strategy} icon={FlaskConical} />
-        <MetricCard
-          label="最佳组合"
-          value={best?.params || "-"}
-          subValue={best ? `${best.total_return_pct?.toFixed(2)}% / 回撤 ${best.max_drawdown_pct?.toFixed(2)}%` : "暂无结果"}
-          tone={toneByValue(best?.total_return_pct)}
-          icon={BarChart3}
-        />
-      </div>
-
-      <Panel title="参数优化结果" description="仅作为观察起点，不能直接替代样本外验证。">
-        {rows.length === 0 ? (
-          <EmptyState title="暂无参数结果" description="当前策略可能暂不支持优化，先选择 ma_cross 或 macd_daily。" />
-        ) : (
-          <TableShell minWidth="680px">
-            <thead>
-              <tr className="border-b border-slate-800 text-left text-slate-500">
-                <th className="px-3 py-2 font-normal">参数</th>
-                <th className="px-3 py-2 text-right font-normal">收益率</th>
-                <th className="px-3 py-2 text-right font-normal">最大回撤</th>
-                <th className="px-3 py-2 text-right font-normal">交易次数</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, index) => (
-                <tr key={`${row.params}-${index}`} className="border-b border-slate-800/60 hover:bg-slate-900">
-                  <td className="px-3 py-2.5 font-mono text-slate-100">{row.params}</td>
-                  <td className={`px-3 py-2.5 text-right font-mono ${row.total_return_pct >= 0 ? "text-up" : "text-down"}`}>
-                    {row.total_return_pct?.toFixed(2)}%
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-mono text-down">{row.max_drawdown_pct?.toFixed(2)}%</td>
-                  <td className="px-3 py-2.5 text-right font-mono text-slate-400">{formatNumber(row.total_trades)}</td>
                 </tr>
               ))}
             </tbody>

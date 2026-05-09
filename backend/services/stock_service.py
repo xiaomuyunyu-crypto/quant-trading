@@ -22,6 +22,29 @@ def get_all_stocks(exchange: str | None = None) -> list[dict]:
     return df.to_dict(orient="records")
 
 
+def _ensure_stocks_populated() -> int:
+    """确保stocks表有数据；为空时从AKShare拉取全量A股列表并写入。返回stocks数量。"""
+    with get_session() as session:
+        count = session.query(StockModel).count()
+        if count > 0:
+            return count
+
+    try:
+        from data.fetcher.akshare_fetcher import fetch_stock_list
+        from data.storage.repository import upsert_stocks
+
+        df = fetch_stock_list()
+        if df is not None and not df.empty:
+            upsert_stocks(df)
+            with get_session() as session:
+                return session.query(StockModel).count()
+    except Exception:
+        pass
+
+    with get_session() as session:
+        return session.query(StockModel).count()
+
+
 def search_stocks(keyword: str, limit: int = 10) -> list[dict]:
     """按代码或中文名称搜索股票，优先从stocks表查，为空则查自选股。"""
     query = keyword.strip()
@@ -29,6 +52,10 @@ def search_stocks(keyword: str, limit: int = 10) -> list[dict]:
         return []
 
     limit = max(1, min(limit, 50))
+
+    # stocks表为空时自动从AKShare拉取全量A股列表
+    _ensure_stocks_populated()
+
     with get_session() as session:
         stocks = session.execute(select(StockModel)).scalars().all()
         watch_rows = session.execute(select(WatchlistModel)).scalars().all()

@@ -88,6 +88,8 @@ export default function StockSearchInput({
   limit = 8,
   showInitialSuggestions = false,
   enableFallback = true,
+  resultMode = "full",
+  selectOnFocus = false,
 }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
@@ -157,6 +159,8 @@ export default function StockSearchInput({
   }, [fallbackItems, keyword, limit, open, selectedLabel, showInitialSuggestions]);
 
   const showPanel = open && (loading || message || items.length > 0);
+  const compactResults = resultMode === "code-name";
+  const panelGridClass = compactResults ? "grid-cols-[96px_1fr]" : "grid-cols-[78px_1fr_54px_86px]";
 
   return (
     <div ref={boxRef} className={`relative ${className}`}>
@@ -169,7 +173,12 @@ export default function StockSearchInput({
             onChange(e.target.value);
             setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={(e) => {
+            if (selectOnFocus) {
+              e.target.select();
+            }
+            setOpen(true);
+          }}
           onKeyDown={(e) => {
             const code = value.trim();
             if (e.key === "Enter" && /^\d{6}$/.test(code) && onSubmitCode) {
@@ -210,11 +219,11 @@ export default function StockSearchInput({
 
       {showPanel && (
         <div className={`absolute left-0 right-0 top-[68px] z-30 overflow-hidden rounded border ${classes.panel}`}>
-          <div className={`grid grid-cols-[54px_78px_1fr_86px] border-b px-3 py-2 text-xs ${classes.header}`}>
-            <span>市场</span>
+          <div className={`grid ${panelGridClass} border-b px-3 py-2 text-xs ${classes.header}`}>
             <span>代码</span>
             <span>名称</span>
-            <span>首字母</span>
+            {!compactResults && <span>市场</span>}
+            {!compactResults && <span>首字母</span>}
           </div>
 
           {loading ? (
@@ -232,16 +241,20 @@ export default function StockSearchInput({
                     onSelect(item);
                     setOpen(false);
                   }}
-                  className={`grid w-full grid-cols-[54px_78px_1fr_86px] items-center border-b px-3 py-2.5 text-left text-sm ${classes.row}`}
+                  className={`grid w-full ${panelGridClass} items-center border-b px-3 py-2.5 text-left text-sm ${classes.row}`}
                 >
-                  <span className="w-10 bg-blue-600 px-1.5 py-0.5 text-center text-xs text-white">
-                    {item.market_label || item.exchange || "-"}
-                  </span>
                   <span className={`font-mono ${classes.code}`}>{item.code}</span>
                   <span className={`truncate ${classes.rowName}`}>{item.name}</span>
-                  <span className="truncate font-mono text-xs text-slate-500">
-                    {item.initials || item.py || "-"}
-                  </span>
+                  {!compactResults && (
+                    <span className="w-10 bg-blue-600 px-1.5 py-0.5 text-center text-xs text-white">
+                      {item.market_label || item.exchange || "-"}
+                    </span>
+                  )}
+                  {!compactResults && (
+                    <span className="truncate font-mono text-xs text-slate-500">
+                      {item.initials || item.py || "-"}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>

@@ -63,11 +63,31 @@ def _seed_watchlist(project_root: Path):
         s.commit()
 
 
+def _seed_stocks_if_empty():
+    """线上空库首次启动时同步A股基础列表，保障搜索接口可用。"""
+    from data.storage.repository import query_stocks, upsert_stocks
+    from data.fetcher.akshare_fetcher import fetch_stock_list
+    from data.cleaner.cleaner import clean_stock_list
+
+    try:
+        existing = query_stocks()
+        if not existing.empty:
+            return
+        raw = fetch_stock_list()
+        clean = clean_stock_list(raw)
+        if not clean.empty:
+            upsert_stocks(clean)
+    except Exception:
+        # 股票基础列表失败不阻塞服务启动；回测仍可通过K线兜底按代码拉取。
+        return
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """启动时自动初始化数据库并导入种子数据"""
     from data.storage.database import init_db
     init_db()
+    _seed_stocks_if_empty()
     _seed_watchlist(PROJECT_ROOT)
     yield
 

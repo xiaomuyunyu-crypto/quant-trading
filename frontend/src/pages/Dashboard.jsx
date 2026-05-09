@@ -381,7 +381,7 @@ export default function Dashboard() {
 
         <Panel
           title="策略研究入口"
-          description="当前后端已有单股回测、策略对比和参数优化；下一步重点是把结果保存为可复盘的记忆。"
+          description="当前前端只保留三周期 MACD + 250 日均线状态机，先把这套规则跑顺、看懂、复盘清楚。"
           actions={
             <Button icon={BarChart3} onClick={() => navigate("/backtest")}>
               打开回测
@@ -390,21 +390,21 @@ export default function Dashboard() {
         >
           <div className="grid gap-3 md:grid-cols-3">
             <div className="rounded border border-slate-800 bg-slate-950/50 p-4">
-              <div className="text-sm font-medium text-slate-200">单股回测</div>
+              <div className="text-sm font-medium text-slate-200">滚动选股回测</div>
               <p className="mt-2 text-xs leading-5 text-slate-500">
-                按收盘价、满仓进出、忽略手续费，快速验证标的与策略。
+                输入几个字或一两位代码，选择标的后直接进入回测。
               </p>
             </div>
             <div className="rounded border border-slate-800 bg-slate-950/50 p-4">
-              <div className="text-sm font-medium text-slate-200">策略对比</div>
+              <div className="text-sm font-medium text-slate-200">MACD + 250 日均线</div>
               <p className="mt-2 text-xs leading-5 text-slate-500">
-                同一标的一次跑全部预设策略，按收益率和回撤排序。
+                月线定方向，250 日均线定开关，周线开窗口，日线做执行。
               </p>
             </div>
             <div className="rounded border border-slate-800 bg-slate-950/50 p-4">
-              <div className="text-sm font-medium text-slate-200">参数优化</div>
+              <div className="text-sm font-medium text-slate-200">交易明细复盘</div>
               <p className="mt-2 text-xs leading-5 text-slate-500">
-                对均线或 MACD 参数做网格搜索，找出当前区间表现。
+                看累计收益、回撤、买卖点和每笔成交原因。
               </p>
             </div>
           </div>
