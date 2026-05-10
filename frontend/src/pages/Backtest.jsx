@@ -22,6 +22,12 @@ import {
   TableShell,
 } from "../components/WorkbenchUI";
 import { formatCurrency, formatNumber, formatPercent, toneByValue } from "../lib/format";
+import WATCHLIST_STOCKS from "../data/watchlist";
+
+// 快速候选：取自选股中A股+ETF前15只
+const ROLLING_STOCKS = WATCHLIST_STOCKS
+  .filter((s) => s.market_label === "深A" || s.market_label === "沪A" || s.market_label === "ETF")
+  .slice(0, 15);
 
 const DEFAULT_STRATEGIES = [
   {
@@ -56,25 +62,7 @@ const DEFAULT_STRATEGIES = [
   },
 ];
 
-const initialStock = { code: "000001", name: "平安银行", market_label: "深A" };
-
-const ROLLING_STOCKS = [
-  { code: "159915", name: "创业板ETF", market_label: "深A", initials: "CYBETF" },
-  { code: "510300", name: "沪深300ETF", market_label: "沪A", initials: "HS300ETF" },
-  { code: "510050", name: "上证50ETF", market_label: "沪A", initials: "SZ50ETF" },
-  { code: "159949", name: "创业板50", market_label: "深A", initials: "CYB50" },
-  { code: "512100", name: "中证1000ETF", market_label: "沪A", initials: "ZZ1000" },
-  { code: "000001", name: "平安银行", market_label: "深A", initials: "PAYH" },
-  { code: "600036", name: "招商银行", market_label: "沪A", initials: "ZSYH" },
-  { code: "600519", name: "贵州茅台", market_label: "沪A", initials: "GZMT" },
-  { code: "300750", name: "宁德时代", market_label: "深A", initials: "NDSD" },
-  { code: "000858", name: "五粮液", market_label: "深A", initials: "WLY" },
-  { code: "601318", name: "中国平安", market_label: "沪A", initials: "ZGPA" },
-  { code: "600309", name: "万华化学", market_label: "沪A", initials: "WHHX" },
-  { code: "002415", name: "海康威视", market_label: "深A", initials: "HKWS" },
-  { code: "000333", name: "美的集团", market_label: "深A", initials: "MDJT" },
-  { code: "600276", name: "恒瑞医药", market_label: "沪A", initials: "HRYY" },
-];
+const initialStock = { code: "000408", name: "藏格矿业", market_label: "深A" };
 
 export default function Backtest() {
   const [stockInput, setStockInput] = useState(formatStockLabel(initialStock));
@@ -233,6 +221,7 @@ export default function Backtest() {
                 variant="light"
                 limit={10}
                 showInitialSuggestions
+                searchMode="local"
                 resultMode="code-name"
                 selectOnFocus
               />

@@ -1,21 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import api from "../api/index";
+import WATCHLIST_STOCKS from "../data/watchlist";
 
-const FALLBACK_STOCKS = [
-  { code: "600055", name: "万东医疗", exchange: "SH", market_label: "沪A", initials: "WDYL" },
-  { code: "600246", name: "万通发展", exchange: "SH", market_label: "沪A", initials: "WTFZ" },
-  { code: "600309", name: "万华化学", exchange: "SH", market_label: "沪A", initials: "WHHX" },
-  { code: "600371", name: "万向德农", exchange: "SH", market_label: "沪A", initials: "WXDN" },
-  { code: "600847", name: "万里股份", exchange: "SH", market_label: "沪A", initials: "WLGF" },
-  { code: "603010", name: "万盛股份", exchange: "SH", market_label: "沪A", initials: "WSGF" },
-  { code: "000001", name: "平安银行", exchange: "SZ", market_label: "深A", initials: "PAYH" },
-  { code: "000002", name: "万科A", exchange: "SZ", market_label: "深A", initials: "WKA" },
-  { code: "600036", name: "招商银行", exchange: "SH", market_label: "沪A", initials: "ZSYH" },
-  { code: "300750", name: "宁德时代", exchange: "SZ", market_label: "深A", initials: "NDSD" },
-  { code: "159915", name: "创业板ETF", exchange: "SZ", market_label: "深A", initials: "CYBETF" },
-  { code: "510300", name: "沪深300ETF", exchange: "SH", market_label: "沪A", initials: "HS300ETF" },
-];
+// 添加首字母拼音（用于拼音搜索）
+const STOCKS_WITH_INITIALS = WATCHLIST_STOCKS.map((s) => {
+  let initials = "";
+  try {
+    // 简单取前两个字的首字母作为拼音助记
+    const cn = s.name.replace(/[·\s\.\-一-鿿]/g, "");
+    initials = s.name.slice(0, 2);
+  } catch { initials = ""; }
+  return { ...s, initials };
+});
+
+const FALLBACK_STOCKS = STOCKS_WITH_INITIALS;
 
 export function formatStockLabel(stock) {
   if (!stock) return "";
@@ -88,6 +87,7 @@ export default function StockSearchInput({
   limit = 8,
   showInitialSuggestions = false,
   enableFallback = true,
+  searchMode = "api",
   resultMode = "full",
   selectOnFocus = false,
 }) {
@@ -123,7 +123,7 @@ export default function StockSearchInput({
       return;
     }
 
-    if (!keyword) {
+    if (!keyword || searchMode === "local") {
       setItems(fallbackItems);
       setMessage(fallbackItems.length === 0 ? "暂无候选股票" : "");
       setLoading(false);
@@ -156,7 +156,7 @@ export default function StockSearchInput({
       canceled = true;
       window.clearTimeout(timer);
     };
-  }, [fallbackItems, keyword, limit, open, selectedLabel, showInitialSuggestions]);
+  }, [fallbackItems, keyword, limit, open, selectedLabel, showInitialSuggestions, searchMode]);
 
   const showPanel = open && (loading || message || items.length > 0);
   const compactResults = resultMode === "code-name";
