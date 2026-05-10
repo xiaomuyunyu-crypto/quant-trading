@@ -152,34 +152,52 @@ def _fetch_kline_direct(
     start_date: str,
     end_date: str,
     result: KlineFetchResult,
+    max_retries: int = 3,
 ) -> KlineFetchResult:
-    """直连AKShare获取K线，不读写数据库。"""
-    try:
-        from data.fetcher.akshare_fetcher import fetch_daily_kline
-        from data.cleaner.cleaner import clean_kline
+    """直连AKShare获取K线，不读写数据库。失败自动重试。"""
+    import time
 
-        fetched = fetch_daily_kline(lookup_code, start_date=start_date, end_date=end_date)
-        if fetched is None or fetched.empty:
-            result.data_source = "empty"
-            result.warnings.append("AKShare未返回K线数据")
+    from data.fetcher.akshare_fetcher import fetch_daily_kline
+    from data.cleaner.cleaner import clean_kline
+
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            fetched = fetch_daily_kline(lookup_code, start_date=start_date, end_date=end_date)
+            if fetched is None or fetched.empty:
+                last_error = "AKShare未返回K线数据"
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                result.data_source = "empty"
+                result.warnings.append(last_error)
+                return result
+
+            cleaned = clean_kline(fetched)
+            if cleaned.empty:
+                last_error = "AKShare数据清洗后为空"
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                result.data_source = "empty"
+                result.warnings.append(last_error)
+                return result
+
+            result.df = cleaned
+            result.fetched_rows = len(cleaned)
+            result.data_source = "akshare"
+            _fill_actual_range(result)
+            _append_coverage_warnings(result)
             return result
+        except Exception as exc:
+            last_error = str(exc)
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+                continue
 
-        cleaned = clean_kline(fetched)
-        if cleaned.empty:
-            result.data_source = "empty"
-            result.warnings.append("AKShare数据清洗后为空")
-            return result
-
-        result.df = cleaned
-        result.fetched_rows = len(cleaned)
-        result.data_source = "akshare"
-        _fill_actual_range(result)
-        _append_coverage_warnings(result)
-        return result
-    except Exception as exc:
-        result.data_source = "empty"
-        result.errors.append(str(exc))
-        return result
+    result.data_source = "empty"
+    result.errors.append(f"AKShare重试{max_retries}次后仍失败：{last_error}")
+    return result
 
 
 def _query_klines_from_db(
