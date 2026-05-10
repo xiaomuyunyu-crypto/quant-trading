@@ -15,25 +15,79 @@ from backend.core.signal_engine import (
 )
 
 TRIPLE_MACD_STRATEGIES: dict[str, dict] = {
+    # ── 策略1-4：标准日线阈值 (买3/4 卖2/3) ──
     "triple_macd_ma250": {
         "use_monthly_filter": True,
         "use_ma250_filter": True,
         "use_weekly_filter": True,
+        "green_shrink_consecutive_min": 3,
+        "green_shrink_segment_min": 4,
+        "red_shrink_consecutive_min": 2,
+        "red_shrink_segment_min": 3,
     },
     "triple_macd_no_monthly": {
         "use_monthly_filter": False,
         "use_ma250_filter": True,
         "use_weekly_filter": True,
+        "green_shrink_consecutive_min": 3,
+        "green_shrink_segment_min": 4,
+        "red_shrink_consecutive_min": 2,
+        "red_shrink_segment_min": 3,
     },
     "triple_macd_no_monthly_no_ma250": {
         "use_monthly_filter": False,
         "use_ma250_filter": False,
         "use_weekly_filter": True,
+        "green_shrink_consecutive_min": 3,
+        "green_shrink_segment_min": 4,
+        "red_shrink_consecutive_min": 2,
+        "red_shrink_segment_min": 3,
     },
     "triple_macd_daily_only": {
         "use_monthly_filter": False,
         "use_ma250_filter": False,
         "use_weekly_filter": False,
+        "green_shrink_consecutive_min": 3,
+        "green_shrink_segment_min": 4,
+        "red_shrink_consecutive_min": 2,
+        "red_shrink_segment_min": 3,
+    },
+    # ── 策略5-8：宽松日线阈值 (买2/3 卖2/2) ──
+    "triple_macd_ma250_loose": {
+        "use_monthly_filter": True,
+        "use_ma250_filter": True,
+        "use_weekly_filter": True,
+        "green_shrink_consecutive_min": 2,
+        "green_shrink_segment_min": 3,
+        "red_shrink_consecutive_min": 2,
+        "red_shrink_segment_min": 2,
+    },
+    "triple_macd_no_monthly_loose": {
+        "use_monthly_filter": False,
+        "use_ma250_filter": True,
+        "use_weekly_filter": True,
+        "green_shrink_consecutive_min": 2,
+        "green_shrink_segment_min": 3,
+        "red_shrink_consecutive_min": 2,
+        "red_shrink_segment_min": 2,
+    },
+    "triple_macd_no_monthly_no_ma250_loose": {
+        "use_monthly_filter": False,
+        "use_ma250_filter": False,
+        "use_weekly_filter": True,
+        "green_shrink_consecutive_min": 2,
+        "green_shrink_segment_min": 3,
+        "red_shrink_consecutive_min": 2,
+        "red_shrink_segment_min": 2,
+    },
+    "triple_macd_daily_only_loose": {
+        "use_monthly_filter": False,
+        "use_ma250_filter": False,
+        "use_weekly_filter": False,
+        "green_shrink_consecutive_min": 2,
+        "green_shrink_segment_min": 3,
+        "red_shrink_consecutive_min": 2,
+        "red_shrink_segment_min": 2,
     },
 }
 

@@ -23,21 +23,35 @@ FULL_HISTORY_START = "19900101"
 # ─── 预存策略定义 ───
 
 PRESET_STRATEGIES: list[dict] = [
-    {"key": "triple_macd_ma250", "name": "原策略：月线+MA250+周线+日线",
+    # ── 策略1-4：标准日线阈值 (买3/4 卖2/3) ──
+    {"key": "triple_macd_ma250", "name": "策略1：月线+MA250+周线+日线",
      "desc": "月线MACD过滤，MA250长期开关，周线窗口；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
-     "category": "MACD逐级松绑", "params": {"level": 0}},
-    {"key": "triple_macd_no_monthly", "name": "松绑1：去掉月线MACD控制",
-     "desc": "不再用月线MACD限制买卖，保留MA250、周线窗口；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
      "category": "MACD逐级松绑", "params": {"level": 1}},
-    {"key": "triple_macd_no_monthly_no_ma250", "name": "松绑2：再去掉MA250控制",
-     "desc": "去掉月线MACD和MA250过滤，保留周线窗口；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
+    {"key": "triple_macd_no_monthly", "name": "策略2：去掉月线MACD控制",
+     "desc": "不再用月线MACD限制买卖，保留MA250、周线窗口；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
      "category": "MACD逐级松绑", "params": {"level": 2}},
-    {"key": "triple_macd_daily_only", "name": "松绑3：仅日线MACD执行",
-     "desc": "去掉月线、MA250、周线控制；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
+    {"key": "triple_macd_no_monthly_no_ma250", "name": "策略3：再去掉MA250控制",
+     "desc": "去掉月线MACD和MA250过滤，保留周线窗口；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
      "category": "MACD逐级松绑", "params": {"level": 3}},
+    {"key": "triple_macd_daily_only", "name": "策略4：仅日线MACD执行",
+     "desc": "去掉月线、MA250、周线控制；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
+     "category": "MACD逐级松绑", "params": {"level": 4}},
+    # ── 策略5-8：宽松日线阈值 (买2/3 卖2/2) ──
+    {"key": "triple_macd_ma250_loose", "name": "策略5：月线+MA250+周线+日线(松买入)",
+     "desc": "月线MACD过滤，MA250长期开关，周线窗口；日线买=金叉或绿柱连续缩短2次或绿柱累计缩短3次，卖=死叉或红柱连续缩短2次或红柱累计缩短2次",
+     "category": "MACD逐级松绑", "params": {"level": 5}},
+    {"key": "triple_macd_no_monthly_loose", "name": "策略6：去掉月线MACD控制(松买入)",
+     "desc": "不再用月线MACD限制买卖，保留MA250、周线窗口；日线买=金叉或绿柱连续缩短2次或绿柱累计缩短3次，卖=死叉或红柱连续缩短2次或红柱累计缩短2次",
+     "category": "MACD逐级松绑", "params": {"level": 6}},
+    {"key": "triple_macd_no_monthly_no_ma250_loose", "name": "策略7：再去掉MA250控制(松买入)",
+     "desc": "去掉月线MACD和MA250过滤，保留周线窗口；日线买=金叉或绿柱连续缩短2次或绿柱累计缩短3次，卖=死叉或红柱连续缩短2次或红柱累计缩短2次",
+     "category": "MACD逐级松绑", "params": {"level": 7}},
+    {"key": "triple_macd_daily_only_loose", "name": "策略8：仅日线MACD执行(松买入)",
+     "desc": "去掉月线、MA250、周线控制；日线买=金叉或绿柱连续缩短2次或绿柱累计缩短3次，卖=死叉或红柱连续缩短2次或红柱累计缩短2次",
+     "category": "MACD逐级松绑", "params": {"level": 8}},
     {"key": "weekly_macd_cross", "name": "周线MACD金叉/死叉",
-     "desc": "第5个策略保留简单规则：周线MACD金叉买入，周线MACD死叉卖出",
-     "category": "周线策略", "params": {"level": 4}},
+     "desc": "简单规则：周线MACD金叉买入，周线MACD死叉卖出",
+     "category": "周线策略", "params": {"level": 9}},
 ]
 
 

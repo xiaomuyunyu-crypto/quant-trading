@@ -83,6 +83,10 @@ class TripleMACDStateMachine:
         use_monthly_filter: bool = True,
         use_ma250_filter: bool = True,
         use_weekly_filter: bool = True,
+        green_shrink_consecutive_min: int = 3,
+        green_shrink_segment_min: int = 4,
+        red_shrink_consecutive_min: int = 2,
+        red_shrink_segment_min: int = 3,
     ):
         self.daily = daily.reset_index(drop=True)
         self.weekly = weekly.reset_index(drop=True)
@@ -94,6 +98,10 @@ class TripleMACDStateMachine:
         self.use_monthly_filter = use_monthly_filter
         self.use_ma250_filter = use_ma250_filter
         self.use_weekly_filter = use_weekly_filter
+        self._g_consec_min = green_shrink_consecutive_min
+        self._g_seg_min = green_shrink_segment_min
+        self._r_consec_min = red_shrink_consecutive_min
+        self._r_seg_min = red_shrink_segment_min
 
     def run(self) -> tuple[list[str], list[dict]]:
         """逐日运行，返回 (信号列表, 状态历史)"""
@@ -247,29 +255,29 @@ class TripleMACDStateMachine:
         return self._weekly_window_open
 
     def _daily_buy_signal(self, d) -> str:
-        """日线买入：金叉 / 绿柱连续缩短3次 / 当前绿柱段累计缩短4次。"""
+        """日线买入：金叉 / 绿柱连续缩短≥阈值 / 当前绿柱段累计缩短≥阈值。"""
         cross = self._safe_int(d.get("MACD_cross", 0))
         if cross == 1:
             return "日线MACD金叉"
         green_consecutive = self._safe_int(d.get("MACD_green_shrink_consecutive", 0))
-        if green_consecutive >= 3:
-            return "日线MACD绿柱连续缩短3次"
+        if green_consecutive >= self._g_consec_min:
+            return f"日线MACD绿柱连续缩短{green_consecutive}次"
         green_total = self._safe_int(d.get("MACD_green_shrink_segment_total", 0))
-        if green_total >= 4:
-            return "日线MACD绿柱累计缩短4次"
+        if green_total >= self._g_seg_min:
+            return f"日线MACD绿柱累计缩短{green_total}次"
         return ""
 
     def _daily_sell_signal(self, d) -> str:
-        """日线卖出：死叉 / 红柱连续缩短2次 / 当前红柱段累计缩短3次。"""
+        """日线卖出：死叉 / 红柱连续缩短≥阈值 / 当前红柱段累计缩短≥阈值。"""
         cross = self._safe_int(d.get("MACD_cross", 0))
         if cross == -1:
             return "日线MACD死叉"
         red_consecutive = self._safe_int(d.get("MACD_red_shrink_consecutive", 0))
-        if red_consecutive >= 2:
-            return "日线MACD红柱连续缩短2次"
+        if red_consecutive >= self._r_consec_min:
+            return f"日线MACD红柱连续缩短{red_consecutive}次"
         red_total = self._safe_int(d.get("MACD_red_shrink_segment_total", 0))
-        if red_total >= 3:
-            return "日线MACD红柱累计缩短3次"
+        if red_total >= self._r_seg_min:
+            return f"日线MACD红柱累计缩短{red_total}次"
         return ""
 
     def _buy_context(self, monthly_label: str) -> str:
