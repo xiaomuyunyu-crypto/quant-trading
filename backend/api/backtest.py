@@ -24,19 +24,19 @@ FULL_HISTORY_START = "19900101"
 
 PRESET_STRATEGIES: list[dict] = [
     {"key": "triple_macd_ma250", "name": "原策略：月线+MA250+周线+日线",
-     "desc": "保留当前规则：月线MACD过滤，MA250长期开关，周线窗口，日线MACD执行",
+     "desc": "月线MACD过滤，MA250长期开关，周线窗口；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
      "category": "MACD逐级松绑", "params": {"level": 0}},
     {"key": "triple_macd_no_monthly", "name": "松绑1：去掉月线MACD控制",
-     "desc": "不再用月线MACD限制买卖，保留MA250、周线窗口和日线MACD执行",
+     "desc": "不再用月线MACD限制买卖，保留MA250、周线窗口；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
      "category": "MACD逐级松绑", "params": {"level": 1}},
     {"key": "triple_macd_no_monthly_no_ma250", "name": "松绑2：再去掉MA250控制",
-     "desc": "去掉月线MACD和MA250过滤，保留周线窗口，日线MACD执行",
+     "desc": "去掉月线MACD和MA250过滤，保留周线窗口；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
      "category": "MACD逐级松绑", "params": {"level": 2}},
     {"key": "triple_macd_daily_only", "name": "松绑3：仅日线MACD执行",
-     "desc": "去掉月线、MA250、周线控制，只按日线MACD金叉买入、死叉卖出",
+     "desc": "去掉月线、MA250、周线控制；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
      "category": "MACD逐级松绑", "params": {"level": 3}},
     {"key": "weekly_macd_cross", "name": "周线MACD金叉/死叉",
-     "desc": "周线MACD出现金叉买入，出现死叉卖出",
+     "desc": "第5个策略保留简单规则：周线MACD金叉买入，周线MACD死叉卖出",
      "category": "周线策略", "params": {"level": 4}},
 ]
 
@@ -44,7 +44,7 @@ PRESET_STRATEGIES: list[dict] = [
 @router.post("", response_model=BacktestResultModel)
 def execute_backtest(req: BacktestRequest):
     """执行单股回测"""
-    # 处理日期：优先显式日期，其次上市以来，最后默认回溯3000天。
+    # 处理日期：优先显式日期，其次上市以来，最后默认回溯1000天。
     start_date, end_date = _resolve_backtest_range(
         start_date=req.start_date,
         end_date=req.end_date,
@@ -55,13 +55,16 @@ def execute_backtest(req: BacktestRequest):
     kline_result = get_klines_with_meta(req.code, start_date=start_date, end_date=end_date, bypass_cache=req.bypass_cache)
     df = kline_result.df
     if df is None or df.empty:
-        raise HTTPException(status_code=404, detail=f"股票 {req.code} 在指定区间无K线数据")
+        details = "；".join(kline_result.errors + kline_result.warnings)
+        suffix = f"（{details}）" if details else ""
+        raise HTTPException(status_code=404, detail=f"股票 {req.code} 在指定区间无K线数据{suffix}")
 
     result = run_backtest(df, req.code, strategy=req.strategy, initial_capital=req.initial_capital)
     strategy_diagnostics = generate_strategy_diagnostics(
         df,
         req.strategy,
         precomputed_signals=result.signals,
+        precomputed_history=result.signal_history,
     )
     diagnostics = {
         "kline": kline_result.to_dict(),
@@ -268,7 +271,7 @@ def _resolve_backtest_range(
     days: int | None = None,
     full_history: bool = False,
 ) -> tuple[str, str]:
-    """统一回测日期解析：支持默认3000天与从上市以来回测。"""
+    """统一回测日期解析：支持默认1000天与从上市以来回测。"""
     resolved_end = _to_compact_date(end_date) or datetime.now().strftime("%Y%m%d")
     if full_history:
         return FULL_HISTORY_START, resolved_end

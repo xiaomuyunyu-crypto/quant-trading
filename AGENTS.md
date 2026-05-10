@@ -80,7 +80,16 @@ cd frontend && npm run dev
 4. **修改前先读完原文件**，不得擅自重构或变更已有数据结构
 5. **所有代码完整可运行**，不得省略 import，不得留 TODO 标记
 6. **每个 .py 文件头部必须有** `# -*- coding: utf-8 -*-`
-7. **严禁主动执行 `git commit`**（除非用户明确要求）
+7. **严禁主动执行 `git commit`**（除非用户明确要求；用户说提交、推送、部署、上线、修复线上问题时，视为授权完整提交/推送/部署闭环）
+
+## 自动化交付默认
+
+- 用户明确要求“推送/部署/上线”后，Codex 应自动筛选本次相关文件、运行必要测试和构建、提交、推送到 `origin/main`，并查看 GitHub Actions / Vercel / Render 状态。
+- 前端改动至少运行：`cd frontend && npm.cmd run build`
+- 后端、数据、策略改动至少运行：`python -m compileall backend data strategy`
+- 策略规则改动必须运行或补充 `tests/` 下的测试。
+- 回测页面默认直连 AKShare 获取 K 线，SQLite 作为缓存/兜底，不应让线上缓存缺口阻塞用户回测。
+- 自动化提交禁止包含工作日志、临时文件、缓存、密钥或与本次任务无关的改动。
 
 ## 数据模型
 

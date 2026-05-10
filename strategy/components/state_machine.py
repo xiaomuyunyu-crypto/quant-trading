@@ -124,7 +124,7 @@ class TripleMACDStateMachine:
         # ── L1: 月线 ──
         if self.use_monthly_filter:
             m_status = "多头" if self._macd_bullish(m) else "空头"
-            m_cross = int(m.get("MACD_cross", 0) or 0)
+            m_cross = self._safe_int(m.get("MACD_cross", 0))
 
             if m_cross == -1 or m_status == "空头":
                 if self.in_position:
@@ -174,30 +174,31 @@ class TripleMACDStateMachine:
 
         # ── L4: 日线执行 ──
         d_status = "多头" if self._macd_bullish(d) else "空头"
-        d_cross = int(d.get("MACD_cross", 0) or 0)
+        buy_signal = self._daily_buy_signal(d)
+        sell_signal = self._daily_sell_signal(d)
         buy_context = self._buy_context(m_label)
 
         if not self.in_position:
-            if d_cross == 1:
+            if buy_signal:
                 self.in_position = True
                 self.state = MachineState.FULL_POSITION
                 return StateSnapshot(self.state, TradeAction.BUY_FULL,
-                    reason=f"日线MACD金叉（{buy_context}），全仓买入",
+                    reason=f"{buy_signal}（{buy_context}），全仓买入",
                     monthly_macd_status=m_label, above_ma250=above,
-                    weekly_window_open=True, daily_macd_status="金叉", in_position=True)
+                    weekly_window_open=True, daily_macd_status=buy_signal, in_position=True)
             self.state = MachineState.DAILY_OPEN
             return StateSnapshot(self.state, TradeAction.HOLD,
-                reason="日线交易窗口开启，等待MACD金叉买入",
+                reason="日线交易窗口开启，等待日线MACD买入信号",
                 monthly_macd_status=m_label, above_ma250=above,
                 weekly_window_open=True, daily_macd_status=d_status)
         else:
-            if d_cross == -1:
+            if sell_signal:
                 self.in_position = False
                 self.state = MachineState.DAILY_SELL_WAITING
                 return StateSnapshot(self.state, TradeAction.SELL_FULL,
-                    reason="日线MACD死叉，卖出",
+                    reason=f"{sell_signal}，卖出",
                     monthly_macd_status=m_label, above_ma250=above,
-                    weekly_window_open=True, daily_macd_status="死叉", in_position=False)
+                    weekly_window_open=True, daily_macd_status=sell_signal, in_position=False)
             self.state = MachineState.FULL_POSITION
             return StateSnapshot(self.state, TradeAction.HOLD,
                 reason="持仓中，等待卖出信号",
@@ -233,17 +234,43 @@ class TripleMACDStateMachine:
 
     def _eval_weekly(self, w) -> bool:
         """周线窗口：绿柱缩短1次→开 / 红柱增长≥2次→开 / 红柱缩短1次→关 / 死叉→关"""
-        cross = int(w.get("MACD_cross", 0) or 0)
+        cross = self._safe_int(w.get("MACD_cross", 0))
         if cross == -1:
             return False
         if bool(w.get("MACD_red_shrink", False)):
             return False
         if bool(w.get("MACD_green_shrink", False)):
             return True
-        grow = int(w.get("MACD_red_grow_consecutive", 0) or 0)
+        grow = self._safe_int(w.get("MACD_red_grow_consecutive", 0))
         if grow >= 2:
             return True
         return self._weekly_window_open
+
+    def _daily_buy_signal(self, d) -> str:
+        """日线买入：金叉 / 绿柱连续缩短3次 / 当前绿柱段累计缩短4次。"""
+        cross = self._safe_int(d.get("MACD_cross", 0))
+        if cross == 1:
+            return "日线MACD金叉"
+        green_consecutive = self._safe_int(d.get("MACD_green_shrink_consecutive", 0))
+        if green_consecutive >= 3:
+            return "日线MACD绿柱连续缩短3次"
+        green_total = self._safe_int(d.get("MACD_green_shrink_segment_total", 0))
+        if green_total >= 4:
+            return "日线MACD绿柱累计缩短4次"
+        return ""
+
+    def _daily_sell_signal(self, d) -> str:
+        """日线卖出：死叉 / 红柱连续缩短2次 / 当前红柱段累计缩短3次。"""
+        cross = self._safe_int(d.get("MACD_cross", 0))
+        if cross == -1:
+            return "日线MACD死叉"
+        red_consecutive = self._safe_int(d.get("MACD_red_shrink_consecutive", 0))
+        if red_consecutive >= 2:
+            return "日线MACD红柱连续缩短2次"
+        red_total = self._safe_int(d.get("MACD_red_shrink_segment_total", 0))
+        if red_total >= 3:
+            return "日线MACD红柱累计缩短3次"
+        return ""
 
     def _buy_context(self, monthly_label: str) -> str:
         parts = []
@@ -254,3 +281,8 @@ class TripleMACDStateMachine:
         if self.use_weekly_filter:
             parts.append("周线窗口开启")
         return "+".join(parts) if parts else "无上层过滤"
+
+    def _safe_int(self, value) -> int:
+        if pd.isna(value):
+            return 0
+        return int(value or 0)

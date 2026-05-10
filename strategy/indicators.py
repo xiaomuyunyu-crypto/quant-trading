@@ -172,18 +172,33 @@ def compute_ma250(df: pd.DataFrame) -> pd.DataFrame:
 # ─── MACD柱趋势 ───
 
 def compute_macd_bar_trend(df: pd.DataFrame) -> pd.DataFrame:
-    """MACD柱趋势特征。追加：MACD_green_shrink / MACD_red_grow / MACD_red_shrink / MACD_red_grow_consecutive"""
+    """MACD柱趋势特征，含同色柱段内的连续/累计缩短次数。"""
     df = df.copy()
     if "MACD_hist" not in df.columns:
         df = compute_macd(df)
     prev = df["MACD_hist"].shift(1)
-    df["MACD_green_shrink"] = (df["MACD_hist"] < 0) & (df["MACD_hist"] > prev)
+    green = df["MACD_hist"] < 0
+    red = df["MACD_hist"] > 0
+    df["MACD_green_shrink"] = green & (df["MACD_hist"] > prev)
     df["MACD_red_grow"] = (df["MACD_hist"] > 0) & (df["MACD_hist"] > prev)
-    df["MACD_red_shrink"] = (df["MACD_hist"] > 0) & (df["MACD_hist"] < prev)
+    df["MACD_red_shrink"] = red & (df["MACD_hist"] < prev)
     df["MACD_green_grow_consecutive"] = _consecutive_true_count(
-        (df["MACD_hist"] < 0) & (df["MACD_hist"] < prev))
+        green & (df["MACD_hist"] < prev))
     df["MACD_red_grow_consecutive"] = _consecutive_true_count(df["MACD_red_grow"])
+    df["MACD_green_shrink_consecutive"] = _consecutive_true_count(df["MACD_green_shrink"])
+    df["MACD_red_shrink_consecutive"] = _consecutive_true_count(df["MACD_red_shrink"])
+    df["MACD_green_shrink_segment_total"] = _segment_true_count(df["MACD_green_shrink"], green)
+    df["MACD_red_shrink_segment_total"] = _segment_true_count(df["MACD_red_shrink"], red)
     return df
+
+
+def _segment_true_count(mask: pd.Series, segment_mask: pd.Series) -> pd.Series:
+    """统计当前同色柱段内累计为True的次数；离开该柱段后清零。"""
+    active = segment_mask.fillna(False).astype(bool)
+    events = mask.fillna(False).astype(bool)
+    segment_id = (active != active.shift(fill_value=False)).cumsum()
+    counts = events.astype(int).groupby(segment_id).cumsum()
+    return counts.where(active, 0).astype(int)
 
 
 # ─── 批量计算 ───

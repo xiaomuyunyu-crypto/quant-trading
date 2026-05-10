@@ -63,6 +63,7 @@ class BacktestResult:
     equity_curve: list[dict] = field(default_factory=list)
     trades: list[TradeRecord] = field(default_factory=list)
     signals: list[str] = field(default_factory=list)
+    signal_history: list[dict] = field(default_factory=list)
     strategy_name: str = ""
 
 
@@ -88,12 +89,21 @@ def run_backtest(
     df = df.sort_values("date").reset_index(drop=True)
     close = df["close"].values.astype(np.float64)
 
-    signals = _generate_strategy_signals(df, strategy)
+    signal_history = []
+    signal_reasons = [""] * len(df)
+    if strategy in TRIPLE_MACD_STRATEGIES:
+        signals, signal_history = _generate_triple_macd_signal_detail(df, strategy)
+        signal_reasons = [
+            str(row.get("reason", "")) for row in signal_history[:len(df)]
+        ] + [""] * max(0, len(df) - len(signal_history))
+    else:
+        signals = _generate_strategy_signals(df, strategy)
     if len(signals) == 0:
         return BacktestResult(code=code, start_date=str(df["date"].iloc[0]),
                               end_date=str(df["date"].iloc[-1]),
                               initial_capital=initial_capital,
-                              signals=signals)
+                              signals=signals,
+                              signal_history=signal_history)
 
     cash = initial_capital
     shares = 0
@@ -118,7 +128,7 @@ def run_backtest(
                 trades.append(TradeRecord(
                     date=date_str, code=code, action="BUY",
                     price=price, shares=shares, amount=amount,
-                    reason=_trade_reason(strategy, "BUY"),
+                    reason=signal_reasons[i] or _trade_reason(strategy, "BUY"),
                     equity_after=round(equity, 2),
                 ))
 
@@ -131,7 +141,7 @@ def run_backtest(
             trades.append(TradeRecord(
                 date=date_str, code=code, action="SELL",
                 price=price, shares=sold, amount=amount,
-                reason=_trade_reason(strategy, "SELL"),
+                reason=signal_reasons[i] or _trade_reason(strategy, "SELL"),
                 equity_after=round(equity, 2),
             ))
 
@@ -178,6 +188,7 @@ def run_backtest(
         equity_curve=equity_curve,
         trades=trades,
         signals=signals,
+        signal_history=signal_history,
         strategy_name=strategy,
     )
 
@@ -395,9 +406,9 @@ def _rsi_recent_condition(
 def _trade_reason(strategy: str, action: str) -> str:
     if strategy in TRIPLE_MACD_STRATEGIES:
         if action == "BUY":
-            return "日线MACD金叉，满足当前策略过滤条件"
+            return "日线MACD买入信号，满足当前策略过滤条件"
         if action == "SELL":
-            return "日线MACD死叉或上层过滤条件转弱"
+            return "日线MACD卖出信号或上层过滤条件转弱"
     if strategy in ("weekly_macd_cross", "macd_weekly"):
         if action == "BUY":
             return "周线MACD金叉"
@@ -486,6 +497,12 @@ def run_backtest_with_signals(df: pd.DataFrame, code: str, signals: list[str],
 
 def _generate_triple_macd_signals(df: pd.DataFrame, strategy: str) -> list[str]:
     """三周期MACD状态机及逐级松绑变体。"""
+    signals, _ = _generate_triple_macd_signal_detail(df, strategy)
+    return signals
+
+
+def _generate_triple_macd_signal_detail(df: pd.DataFrame, strategy: str) -> tuple[list[str], list[dict]]:
+    """三周期MACD状态机及逐级松绑变体，返回信号和状态历史。"""
     import sys
     from pathlib import Path
     project_root = Path(__file__).resolve().parent.parent.parent
@@ -499,15 +516,14 @@ def _generate_triple_macd_signals(df: pd.DataFrame, strategy: str) -> list[str]:
     options = TRIPLE_MACD_STRATEGIES.get(strategy, TRIPLE_MACD_STRATEGIES["triple_macd_ma250"])
     min_bars = _min_required_bars(strategy)
     if len(df) < min_bars:
-        return ["HOLD"] * len(df)
+        return ["HOLD"] * len(df), []
 
     try:
         daily, weekly, monthly = prepare_dataframes(df)
         sm = TripleMACDStateMachine(daily, weekly, monthly, **options)
-        signals, _ = sm.run()
-        return signals
+        return sm.run()
     except Exception:
-        return ["HOLD"] * len(df)
+        return ["HOLD"] * len(df), []
 
 
 def _generate_weekly_macd_cross_signals(df: pd.DataFrame) -> list[str]:
@@ -541,6 +557,7 @@ def generate_strategy_diagnostics(
     df: pd.DataFrame,
     strategy: str,
     precomputed_signals: list[str] | None = None,
+    precomputed_history: list[dict] | None = None,
 ) -> dict:
     """生成策略诊断信息；只解释信号，不改变交易逻辑。"""
     if df is None or df.empty:
@@ -570,7 +587,7 @@ def generate_strategy_diagnostics(
 
     try:
         if precomputed_signals is not None:
-            detail = {"signals": precomputed_signals, "history": []}
+            detail = {"signals": precomputed_signals, "history": precomputed_history or []}
         elif strategy in TRIPLE_MACD_STRATEGIES:
             detail = _diagnose_triple_macd(data, strategy)
         else:
