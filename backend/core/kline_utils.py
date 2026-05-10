@@ -56,6 +56,7 @@ def get_klines_df(
     start_date: str | None = None,
     end_date: str | None = None,
     frequency: str = "D",
+    bypass_cache: bool = False,
 ) -> pd.DataFrame | None:
     """查询K线数据，保持旧接口兼容。"""
     return get_klines_with_meta(
@@ -63,6 +64,7 @@ def get_klines_df(
         start_date=start_date,
         end_date=end_date,
         frequency=frequency,
+        bypass_cache=bypass_cache,
     ).df
 
 
@@ -71,10 +73,11 @@ def get_klines_with_meta(
     start_date: str | None = None,
     end_date: str | None = None,
     frequency: str = "D",
+    bypass_cache: bool = False,
 ) -> KlineFetchResult:
-    """查询K线数据，优先本地库；日线缺口按需调用AKShare并写回缓存。"""
+    """查询K线数据。bypass_cache=True时跳过本地库，直连AKShare。"""
     lookup_code = _normalize_lookup_code(code)
-    requested_start = _to_akshare_date(start_date)
+    requested_start = _to_akshare_date(start_date) or DEFAULT_HISTORY_START
     requested_end = _to_akshare_date(end_date) or datetime.now().strftime("%Y%m%d")
 
     result = KlineFetchResult(
@@ -84,6 +87,11 @@ def get_klines_with_meta(
         requested_end_date=requested_end,
     )
 
+    # ── 快速路径：跳过数据库，直连 AKShare ──
+    if bypass_cache:
+        return _fetch_kline_direct(lookup_code, requested_start, requested_end, result)
+
+    # ── 原有路径：先查数据库缓存 ──
     df = _query_klines_from_db(lookup_code, requested_start, requested_end, frequency)
     result.df = df
     result.cache_rows = 0 if df is None or df.empty else len(df)
@@ -136,6 +144,41 @@ def get_klines_with_meta(
         result.data_source = "cache_stale" if result.cache_rows > 0 else "empty"
         result.errors.append(str(exc))
         _append_coverage_warnings(result)
+        return result
+
+
+def _fetch_kline_direct(
+    lookup_code: str,
+    start_date: str,
+    end_date: str,
+    result: KlineFetchResult,
+) -> KlineFetchResult:
+    """直连AKShare获取K线，不读写数据库。"""
+    try:
+        from data.fetcher.akshare_fetcher import fetch_daily_kline
+        from data.cleaner.cleaner import clean_kline
+
+        fetched = fetch_daily_kline(lookup_code, start_date=start_date, end_date=end_date)
+        if fetched is None or fetched.empty:
+            result.data_source = "empty"
+            result.warnings.append("AKShare未返回K线数据")
+            return result
+
+        cleaned = clean_kline(fetched)
+        if cleaned.empty:
+            result.data_source = "empty"
+            result.warnings.append("AKShare数据清洗后为空")
+            return result
+
+        result.df = cleaned
+        result.fetched_rows = len(cleaned)
+        result.data_source = "akshare"
+        _fill_actual_range(result)
+        _append_coverage_warnings(result)
+        return result
+    except Exception as exc:
+        result.data_source = "empty"
+        result.errors.append(str(exc))
         return result
 
 

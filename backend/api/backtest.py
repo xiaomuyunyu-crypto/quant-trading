@@ -52,7 +52,7 @@ def execute_backtest(req: BacktestRequest):
         full_history=req.full_history,
     )
 
-    kline_result = get_klines_with_meta(req.code, start_date=start_date, end_date=end_date)
+    kline_result = get_klines_with_meta(req.code, start_date=start_date, end_date=end_date, bypass_cache=req.bypass_cache)
     df = kline_result.df
     if df is None or df.empty:
         raise HTTPException(status_code=404, detail=f"股票 {req.code} 在指定区间无K线数据")
@@ -115,7 +115,8 @@ def compare_strategies(
     """一支股票同时跑全部策略 → 排名对比"""
     start_date, end_date = _resolve_backtest_range(days=days)
 
-    df = get_klines_df(code, start_date=start_date, end_date=end_date)
+    kline_result = get_klines_with_meta(code, start_date=start_date, end_date=end_date, bypass_cache=True)
+    df = kline_result.df
     if df is None or df.empty:
         raise HTTPException(status_code=404, detail=f"股票 {code} 无K线数据")
 
@@ -170,7 +171,7 @@ def optimize_parameters(
     """网格搜索最优参数"""
     start_date, end_date = _resolve_backtest_range(days=days)
 
-    df = get_klines_df(code, start_date=start_date, end_date=end_date)
+    df = get_klines_df(code, start_date=start_date, end_date=end_date, bypass_cache=True)
     if df is None or df.empty:
         raise HTTPException(status_code=404, detail=f"股票 {code} 无K线数据")
 
