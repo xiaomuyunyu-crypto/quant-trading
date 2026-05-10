@@ -444,7 +444,9 @@ export default function Backtest() {
 }
 
 function SingleResult({ result, initialCapital }) {
-  const chartOption = buildEquityOption(result.equity_curve || [], initialCapital);
+  const equityCurve = result.equity_curve || [];
+  const strategyOption = buildEquityOption(equityCurve, initialCapital);
+  const comparisonOption = buildComparisonOption(equityCurve, initialCapital);
   const noTradeReason =
     result.diagnostics?.strategy?.primary_reason ||
     "当前策略在这个区间没有触发完整买卖信号。";
@@ -483,10 +485,18 @@ function SingleResult({ result, initialCapital }) {
 
       <Panel
         variant="light"
-        title={`${result.code} · ${result.strategy_name}`}
+        title={`策略收益率 · ${result.code} ${result.strategy_name}`}
         description={`${result.start_date} ~ ${result.end_date}`}
       >
-        <ReactECharts option={chartOption} style={{ height: 380 }} notMerge />
+        <ReactECharts option={strategyOption} style={{ height: 340 }} notMerge />
+      </Panel>
+
+      <Panel
+        variant="light"
+        title="策略 vs 买入持有 · 股价涨跌幅对比"
+        description="实线 = 策略累计收益，虚线 = 买入并持有涨跌幅"
+      >
+        <ReactECharts option={comparisonOption} style={{ height: 340 }} notMerge />
       </Panel>
 
       <DataDiagnostics result={result} />
@@ -667,6 +677,96 @@ function buildEquityOption(equityCurve, initialCapital) {
             })),
           ],
         },
+      },
+    ],
+  };
+}
+
+function buildComparisonOption(equityCurve, initialCapital) {
+  if (!equityCurve || equityCurve.length === 0) return {};
+
+  const dates = equityCurve.map((p) => p.date);
+  const strategyReturns = equityCurve.map((p) => (p.equity / initialCapital - 1) * 100);
+
+  // 买入持有涨跌幅：以第一根有效收盘价为基准 0%
+  let firstClose = null;
+  for (let i = 0; i < equityCurve.length; i++) {
+    const c = equityCurve[i].close;
+    if (c && c > 0) { firstClose = c; break; }
+  }
+  const bhReturns = equityCurve.map((p) => {
+    if (!firstClose || !p.close || p.close <= 0) return null;
+    return ((p.close / firstClose) - 1) * 100;
+  });
+
+  // 买卖点标记（仅在策略线上）
+  const buyPoints = [];
+  const sellPoints = [];
+  equityCurve.forEach((p, i) => {
+    if (p.signal === "BUY") buyPoints.push({ coord: [i, strategyReturns[i]], value: "B" });
+    if (p.signal === "SELL") sellPoints.push({ coord: [i, strategyReturns[i]], value: "S" });
+  });
+
+  const markData = [
+    ...buyPoints.map((pt) => ({ ...pt, itemStyle: { color: "#ef4444" } })),
+    ...sellPoints.map((pt) => ({ ...pt, symbolRotate: 180, itemStyle: { color: "#22c55e" } })),
+  ];
+
+  return {
+    backgroundColor: "transparent",
+    tooltip: {
+      trigger: "axis",
+      formatter: (items) => {
+        if (!items || items.length === 0) return "";
+        const i = items[0].dataIndex;
+        const p = equityCurve[i];
+        let html = `<strong>${p.date}</strong><br/>`;
+        items.forEach((item) => {
+          html += `${item.marker} ${item.seriesName}：${typeof item.value === 'number' ? item.value.toFixed(2) + '%' : '-'}<br/>`;
+        });
+        html += `权益：${formatCurrency(p.equity)}`;
+        if (p.close) html += `<br/>收盘价：${formatNumber(p.close, 2)}`;
+        return html;
+      },
+    },
+    legend: {
+      data: ["策略累计收益", "买入持有涨跌幅"],
+      bottom: 0,
+      textStyle: { color: "#64748b", fontSize: 11 },
+    },
+    grid: { left: "7%", right: "4%", top: 28, bottom: 36 },
+    xAxis: {
+      type: "category",
+      data: dates,
+      axisLabel: { color: "#64748b", fontSize: 10 },
+      axisLine: { lineStyle: { color: "#cbd5e1" } },
+    },
+    yAxis: {
+      type: "value",
+      axisLabel: { color: "#64748b", formatter: "{value}%" },
+      splitLine: { lineStyle: { color: "#e2e8f0" } },
+    },
+    series: [
+      {
+        name: "策略累计收益",
+        type: "line",
+        data: strategyReturns,
+        symbol: "none",
+        lineStyle: { color: "#2563eb", width: 1.8 },
+        markPoint: {
+          symbol: "triangle",
+          symbolSize: 12,
+          label: { color: "#fff", fontSize: 10, fontWeight: "bold" },
+          data: markData,
+        },
+      },
+      {
+        name: "买入持有涨跌幅",
+        type: "line",
+        data: bhReturns,
+        symbol: "none",
+        lineStyle: { color: "#f97316", width: 1.4, type: "dashed" },
+        connectNulls: true,
       },
     ],
   };

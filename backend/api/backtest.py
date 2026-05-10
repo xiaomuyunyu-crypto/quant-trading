@@ -76,14 +76,16 @@ def execute_backtest(req: BacktestRequest):
     if result.total_trades == 0:
         warnings.append(strategy_diagnostics.get("primary_reason") or "该区间没有触发买卖信号")
 
-    # 权益曲线加入信号标记（前端直接用来标注买卖点）
+    # 权益曲线加入信号标记（前端直接用来标注买卖点和股价涨跌幅）
     trade_dates = {t.date[:10]: t.action for t in result.trades}
     equity_with_signals = []
+    first_close = None
     for p in result.equity_curve:
         d = p["date"][:10] if len(p["date"]) > 10 else p["date"]
+        price = float(p.get("close", 0) or 0)
         signal_marker = trade_dates.get(d, "")
         equity_with_signals.append(
-            EquityPoint(date=d, equity=p["equity"], signal=signal_marker)
+            EquityPoint(date=d, equity=p["equity"], signal=signal_marker, close=price)
         )
 
     return BacktestResultModel(

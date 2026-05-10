@@ -152,7 +152,7 @@ def run_backtest(
         dd = (peak - equity) / peak if peak > 0 else 0.0
         max_dd = max(max_dd, dd)
 
-        equity_curve.append({"date": date_str, "equity": round(equity, 2)})
+        equity_curve.append({"date": date_str, "equity": round(equity, 2), "close": price})
 
     # 最后如仍持仓，按最后一天收盘价清仓
     if shares > 0:
@@ -171,7 +171,7 @@ def run_backtest(
             reason="回测结束强制清仓",
             equity_after=round(equity, 2),
         ))
-        equity_curve.append({"date": str(df["date"].iloc[-1]), "equity": round(equity, 2)})
+        equity_curve.append({"date": str(df["date"].iloc[-1]), "equity": round(equity, 2), "close": last_price})
 
     final_equity = equity
     total_return = (final_equity - initial_capital) / initial_capital
@@ -474,14 +474,14 @@ def run_backtest_with_signals(df: pd.DataFrame, code: str, signals: list[str],
         peak = max(peak, equity)
         dd = (peak - equity) / peak if peak > 0 else 0.0
         max_dd = max(max_dd, dd)
-        equity_curve.append({"date": date_str, "equity": round(equity, 2)})
+        equity_curve.append({"date": date_str, "equity": round(equity, 2), "close": price})
 
     if shares > 0:
         last_price = float(close[-1])
         cash += shares * last_price
         equity = cash
         shares = 0
-        equity_curve.append({"date": str(df["date"].iloc[-1]), "equity": round(equity, 2)})
+        equity_curve.append({"date": str(df["date"].iloc[-1]), "equity": round(equity, 2), "close": last_price})
 
     final_equity = equity
     total_return = (final_equity - initial_capital) / initial_capital

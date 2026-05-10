@@ -34,6 +34,7 @@ class EquityPoint(BaseModel):
     date: str
     equity: float
     signal: str = ""   # BUY / SELL / "" — 前端用来标记买卖点
+    close: float = 0.0  # 当日收盘价，前端用来计算买入持有涨跌幅
 
 
 class BacktestResultModel(BaseModel):
