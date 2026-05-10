@@ -15,7 +15,7 @@ from backend.core.kline_utils import get_klines_df, get_klines_with_meta
 
 router = APIRouter(prefix="/backtest", tags=["策略回测"])
 
-DEFAULT_BACKTEST_DAYS = 3000
+DEFAULT_BACKTEST_DAYS = 1000
 MAX_BACKTEST_DAYS = 15000
 FULL_HISTORY_START = "19900101"
 
@@ -58,7 +58,11 @@ def execute_backtest(req: BacktestRequest):
         raise HTTPException(status_code=404, detail=f"股票 {req.code} 在指定区间无K线数据")
 
     result = run_backtest(df, req.code, strategy=req.strategy, initial_capital=req.initial_capital)
-    strategy_diagnostics = generate_strategy_diagnostics(df, req.strategy)
+    strategy_diagnostics = generate_strategy_diagnostics(
+        df,
+        req.strategy,
+        precomputed_signals=result.signals,
+    )
     diagnostics = {
         "kline": kline_result.to_dict(),
         "strategy": strategy_diagnostics,

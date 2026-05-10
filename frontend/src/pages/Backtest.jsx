@@ -81,7 +81,7 @@ export default function Backtest() {
   const [selectedStock, setSelectedStock] = useState(initialStock);
   const [params, setParams] = useState({
     code: initialStock.code,
-    days: 3000,
+    days: 1000,
     fullHistory: false,
     capital: 10000,
   });
@@ -137,6 +137,7 @@ export default function Backtest() {
         days: params.fullHistory ? undefined : daysNum,
         full_history: Boolean(params.fullHistory),
         initial_capital: Number(params.capital) || 10000,
+        bypass_cache: false,
       });
       setResult({ type: "single", data });
     } catch (e) {
@@ -243,7 +244,7 @@ export default function Backtest() {
             <div className="mb-4">
               <h2 className="text-sm font-semibold text-slate-950">回测参数</h2>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                MVP 规则：收盘价、满仓进出、忽略手续费。默认取 3000 天，支持从上市以来回测。
+                MVP 规则：收盘价、满仓进出、忽略手续费。默认取 1000 天，支持从上市以来回测。
               </p>
             </div>
 

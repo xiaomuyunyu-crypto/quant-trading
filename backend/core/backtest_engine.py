@@ -62,6 +62,7 @@ class BacktestResult:
     total_trades: int = 0
     equity_curve: list[dict] = field(default_factory=list)
     trades: list[TradeRecord] = field(default_factory=list)
+    signals: list[str] = field(default_factory=list)
     strategy_name: str = ""
 
 
@@ -91,7 +92,8 @@ def run_backtest(
     if len(signals) == 0:
         return BacktestResult(code=code, start_date=str(df["date"].iloc[0]),
                               end_date=str(df["date"].iloc[-1]),
-                              initial_capital=initial_capital)
+                              initial_capital=initial_capital,
+                              signals=signals)
 
     cash = initial_capital
     shares = 0
@@ -175,6 +177,7 @@ def run_backtest(
         total_trades=len([t for t in trades if "回测结束" not in t.action]),
         equity_curve=equity_curve,
         trades=trades,
+        signals=signals,
         strategy_name=strategy,
     )
 
@@ -534,7 +537,11 @@ def _generate_weekly_macd_cross_signals(df: pd.DataFrame) -> list[str]:
     return signals
 
 
-def generate_strategy_diagnostics(df: pd.DataFrame, strategy: str) -> dict:
+def generate_strategy_diagnostics(
+    df: pd.DataFrame,
+    strategy: str,
+    precomputed_signals: list[str] | None = None,
+) -> dict:
     """生成策略诊断信息；只解释信号，不改变交易逻辑。"""
     if df is None or df.empty:
         return {
@@ -562,7 +569,9 @@ def generate_strategy_diagnostics(df: pd.DataFrame, strategy: str) -> dict:
         return diagnostics
 
     try:
-        if strategy in TRIPLE_MACD_STRATEGIES:
+        if precomputed_signals is not None:
+            detail = {"signals": precomputed_signals, "history": []}
+        elif strategy in TRIPLE_MACD_STRATEGIES:
             detail = _diagnose_triple_macd(data, strategy)
         else:
             signals = _generate_strategy_signals(data, strategy)

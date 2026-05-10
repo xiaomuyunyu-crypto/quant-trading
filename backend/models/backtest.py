@@ -15,7 +15,7 @@ class BacktestRequest(BaseModel):
     days: Optional[int] = Field(default=None, ge=30, le=15000, description="回测天数（与start_date/end_date二选一）")
     full_history: bool = Field(default=False, description="是否从数据源可获取的最早上市日期开始回测")
     initial_capital: float = Field(default=10000.0, ge=10000, description="初始资金")
-    bypass_cache: bool = Field(default=True, description="跳过本地数据库缓存，直连AKShare获取K线")
+    bypass_cache: bool = Field(default=False, description="是否跳过本地数据库缓存，直连AKShare获取K线")
 
 
 class TradeItem(BaseModel):
