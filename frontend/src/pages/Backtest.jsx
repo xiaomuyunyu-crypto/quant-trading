@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import {
   BarChart3,
@@ -96,6 +96,35 @@ export default function Backtest() {
     [selectedStrategy, strategies]
   );
 
+  // ── 页面加载时预热 Render 服务器 ──
+  const [serverStatus, setServerStatus] = useState("warming"); // warming | ready | error
+
+  useEffect(() => {
+    let alive = true;
+    let attempts = 0;
+    const maxAttempts = 3;
+
+    async function warmUp() {
+      while (alive && attempts < maxAttempts) {
+        attempts++;
+        try {
+          await api.get("/health");
+          if (alive) setServerStatus("ready");
+          return;
+        } catch {
+          if (alive && attempts < maxAttempts) {
+            // Vercel 代理超时约30s，等它返回后再试
+            await new Promise((r) => setTimeout(r, 2000));
+          }
+        }
+      }
+      if (alive) setServerStatus("error");
+    }
+
+    warmUp();
+    return () => { alive = false; };
+  }, []);
+
   const updateParam = (key, value) => {
     setParams((prev) => ({ ...prev, [key]: value }));
   };
@@ -124,6 +153,21 @@ export default function Backtest() {
     if (!params.fullHistory && (!Number.isFinite(daysNum) || daysNum < 30)) {
       setError("回测天数至少需要30天");
       return;
+    }
+
+    // 如果服务器还在预热中，先等它就绪
+    if (serverStatus === "warming") {
+      setRunning(true);
+      setError("");
+      try {
+        await api.get("/health");
+        setServerStatus("ready");
+      } catch {
+        setServerStatus("error");
+        setRunning(false);
+        setError("服务器连接超时，请稍后重试（Render 免费计划首次唤醒需要 20-30 秒）");
+        return;
+      }
     }
 
     setMode("single");
@@ -344,8 +388,13 @@ export default function Backtest() {
               </div>
 
               <div className="grid gap-2">
-                <Button icon={Play} onClick={run} disabled={running}>
-                  {running && mode === "single" ? "回测中..." : "开始回测"}
+                {serverStatus === "warming" && (
+                  <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    正在唤醒后端服务器... Render 免费计划首次唤醒约需 20-30 秒
+                  </div>
+                )}
+                <Button icon={Play} onClick={run} disabled={running || serverStatus === "warming"}>
+                  {running ? "回测中..." : serverStatus === "warming" ? "等待服务器就绪..." : "开始回测"}
                 </Button>
               </div>
             </div>
