@@ -20,21 +20,13 @@ def _seed_watchlist(project_root: Path):
     import csv, re
     from data.storage.database import get_session
     from data.storage.models_orm import WatchlistModel
-    from sqlalchemy import select, func
-
-    try:
-        with get_session() as s:
-            count = s.execute(select(func.count()).select_from(WatchlistModel)).scalar() or 0
-            if count > 0:
-                return
-    except Exception:
-        pass
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
     csv_path = project_root / "外部资料" / "自选股材料" / "自选股图片OCR整理.csv"
     if not csv_path.exists():
         return
 
-    records = []
+    records = {}
     try:
         with open(csv_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
@@ -42,12 +34,12 @@ def _seed_watchlist(project_root: Path):
                 code = row.get("代码", "").strip()
                 name = row.get("名称", "").strip()
                 if code and name:
-                    records.append((code, name))
+                    records[code] = name
     except Exception:
         return
 
     with get_session() as s:
-        for code, name in records:
+        for code, name in records.items():
             if re.match(r"^\d{6}$", code):
                 tag = "A股" if code.startswith(("0", "3", "6")) else ("ETF" if code.startswith(("1", "5")) else "指数")
             elif re.match(r"^\d{5}$", code):
@@ -56,10 +48,15 @@ def _seed_watchlist(project_root: Path):
                 tag = "美股"
             else:
                 tag = "指数" if re.match(r"^(BK|98|H)\d+", code) else "其他"
-            try:
-                s.merge(WatchlistModel(code=code, name=name, tags=[tag]))
-            except Exception:
-                pass
+            stmt = sqlite_insert(WatchlistModel).values(code=code, name=name, tags=[tag])
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["code"],
+                set_={
+                    "name": stmt.excluded.name,
+                    "tags": stmt.excluded.tags,
+                },
+            )
+            s.execute(stmt)
         s.commit()
 
 
