@@ -32,33 +32,57 @@ const ROLLING_STOCKS = WATCHLIST_STOCKS
 const DEFAULT_STRATEGIES = [
   {
     key: "triple_macd_ma250",
-    name: "原策略：月线+MA250+周线+日线",
+    name: "策略1：月线+MA250+周线+日线",
     desc: "月线MACD过滤，MA250长期开关，周线窗口；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
-    params: { level: 0 },
-  },
-  {
-    key: "triple_macd_no_monthly",
-    name: "松绑1：去掉月线MACD控制",
-    desc: "不再用月线MACD限制买卖，保留MA250、周线窗口；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
     params: { level: 1 },
   },
   {
-    key: "triple_macd_no_monthly_no_ma250",
-    name: "松绑2：再去掉MA250控制",
-    desc: "去掉月线MACD和MA250过滤，保留周线窗口；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
+    key: "triple_macd_no_monthly",
+    name: "策略2：去掉月线MACD控制",
+    desc: "不再用月线MACD限制买卖，保留MA250、周线窗口；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
     params: { level: 2 },
   },
   {
-    key: "triple_macd_daily_only",
-    name: "松绑3：仅日线MACD执行",
-    desc: "去掉月线、MA250、周线控制；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
+    key: "triple_macd_no_monthly_no_ma250",
+    name: "策略3：再去掉MA250控制",
+    desc: "去掉月线MACD和MA250过滤，保留周线窗口；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
     params: { level: 3 },
+  },
+  {
+    key: "triple_macd_daily_only",
+    name: "策略4：仅日线MACD执行",
+    desc: "去掉月线、MA250、周线控制；日线买=金叉或绿柱连续缩短3次或绿柱累计缩短4次，卖=死叉或红柱连续缩短2次或红柱累计缩短3次",
+    params: { level: 4 },
+  },
+  {
+    key: "triple_macd_ma250_loose",
+    name: "策略5：月线+MA250+周线+日线(松买入)",
+    desc: "月线MACD过滤，MA250长期开关，周线窗口；日线买=金叉或绿柱连续缩短2次或绿柱累计缩短3次，卖=死叉或红柱连续缩短2次或红柱累计缩短2次",
+    params: { level: 5 },
+  },
+  {
+    key: "triple_macd_no_monthly_loose",
+    name: "策略6：去掉月线MACD控制(松买入)",
+    desc: "不再用月线MACD限制买卖，保留MA250、周线窗口；日线买=金叉或绿柱连续缩短2次或绿柱累计缩短3次，卖=死叉或红柱连续缩短2次或红柱累计缩短2次",
+    params: { level: 6 },
+  },
+  {
+    key: "triple_macd_no_monthly_no_ma250_loose",
+    name: "策略7：再去掉MA250控制(松买入)",
+    desc: "去掉月线MACD和MA250过滤，保留周线窗口；日线买=金叉或绿柱连续缩短2次或绿柱累计缩短3次，卖=死叉或红柱连续缩短2次或红柱累计缩短2次",
+    params: { level: 7 },
+  },
+  {
+    key: "triple_macd_daily_only_loose",
+    name: "策略8：仅日线MACD执行(松买入)",
+    desc: "去掉月线、MA250、周线控制；日线买=金叉或绿柱连续缩短2次或绿柱累计缩短3次，卖=死叉或红柱连续缩短2次或红柱累计缩短2次",
+    params: { level: 8 },
   },
   {
     key: "weekly_macd_cross",
     name: "周线MACD金叉/死叉",
-    desc: "第5个策略保留简单规则：周线MACD金叉买入，周线MACD死叉卖出",
-    params: { level: 4 },
+    desc: "简单规则：周线MACD金叉买入，周线MACD死叉卖出",
+    params: { level: 9 },
   },
 ];
 
@@ -221,7 +245,6 @@ export default function Backtest() {
                 variant="light"
                 limit={10}
                 showInitialSuggestions
-                searchMode="local"
                 resultMode="code-name"
                 selectOnFocus
               />
@@ -541,10 +564,14 @@ function SingleResult({ result, initialCapital }) {
 
 function strategyPills(key) {
   const map = {
-    triple_macd_ma250: ["月线MACD", "MA250", "周线窗口", "日线MACD"],
-    triple_macd_no_monthly: ["MA250", "周线窗口", "日线MACD"],
-    triple_macd_no_monthly_no_ma250: ["周线窗口", "日线MACD"],
-    triple_macd_daily_only: ["日线MACD"],
+    triple_macd_ma250: ["月线MACD", "MA250", "周线窗口", "日线MACD(3/4/2/3)"],
+    triple_macd_no_monthly: ["MA250", "周线窗口", "日线MACD(3/4/2/3)"],
+    triple_macd_no_monthly_no_ma250: ["周线窗口", "日线MACD(3/4/2/3)"],
+    triple_macd_daily_only: ["日线MACD(3/4/2/3)"],
+    triple_macd_ma250_loose: ["月线MACD", "MA250", "周线窗口", "日线MACD(2/3/2/2)"],
+    triple_macd_no_monthly_loose: ["MA250", "周线窗口", "日线MACD(2/3/2/2)"],
+    triple_macd_no_monthly_no_ma250_loose: ["周线窗口", "日线MACD(2/3/2/2)"],
+    triple_macd_daily_only_loose: ["日线MACD(2/3/2/2)"],
     weekly_macd_cross: ["周线MACD"],
   };
   return map[key] || ["MACD"];
