@@ -99,6 +99,7 @@ def fetch_daily_kline(
             start_date=start,
             end_date=end,
             adjust=adjust,
+            timeout=30,
         )
     except Exception:
         df = pd.DataFrame()
